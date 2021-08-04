@@ -51,11 +51,9 @@ void DrawArt(const Surface &out, Sint16 screenX, Sint16 screenY, Art *art, int n
 		srcRect.w = srcW;
 	if (srcH != 0 && srcH < srcRect.h)
 		srcRect.h = srcH;
-	SDL_Rect dstRect;
-	dstRect.x = screenX;
-	dstRect.y = screenY;
-	dstRect.w = srcRect.w;
-	dstRect.h = srcRect.h;
+	Point target = { screenX, screenY };
+	out.Clip(&srcRect, &target);
+	SDL_Rect dstRect { target.x + out.region.x, target.y + out.region.y, 0, 0 };
 
 	if (art->surface->format->BitsPerPixel == 8 && art->palette_version != pal_surface_palette_version) {
 		if (SDLC_SetSurfaceColors(art->surface.get(), out.surface->format->palette) <= -1)
