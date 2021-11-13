@@ -5,6 +5,7 @@
  */
 
 #include "automap.h"
+#include "controls/touch/renderers.h"
 #include "cursor.h"
 #include "dead.h"
 #include "doom.h"
@@ -13,6 +14,7 @@
 #include "engine/render/cl2_render.hpp"
 #include "engine/render/dun_render.hpp"
 #include "engine/render/text_render.hpp"
+#include "panels/charpanel.hpp"
 #include "error.h"
 #include "gmenu.h"
 #include "help.h"
@@ -29,6 +31,7 @@
 #include "qol/xpbar.h"
 #include "stores.h"
 #include "towners.h"
+#include "utils/display.h"
 #include "utils/endian.hpp"
 #include "utils/log.hpp"
 
@@ -71,6 +74,8 @@ int level_piece_id;
 // DevilutionX extension.
 extern void DrawControllerModifierHints(const Surface &out);
 
+bool frameflag;
+
 namespace {
 /**
  * @brief Hash algorithm for point
@@ -85,16 +90,14 @@ struct PointHash {
 /**
  * @brief Contains all Missile at rendering position
  */
-std::unordered_multimap<Point, MissileStruct *, PointHash> MissilesAtRenderingTile;
+std::unordered_multimap<Point, Missile *, PointHash> MissilesAtRenderingTile;
 
 /**
  * @brief Could the missile (at the next game tick) collide? This method is a simplified version of CheckMissileCol (for example without random).
  */
 bool CouldMissileCollide(Point tile, bool checkPlayerAndMonster)
 {
-	if (tile.x >= MAXDUNX || tile.x < 0)
-		return true;
-	if (tile.y >= MAXDUNY || tile.y < 0)
+	if (!InDungeonBounds(tile))
 		return true;
 	if (checkPlayerAndMonster) {
 		if (dMonster[tile.x][tile.y] > 0)
@@ -104,19 +107,19 @@ bool CouldMissileCollide(Point tile, bool checkPlayerAndMonster)
 	}
 	int oid = dObject[tile.x][tile.y];
 	if (oid != 0) {
-		oid = oid > 0 ? oid - 1 : -(oid + 1);
+		oid = abs(oid) - 1;
 		if (!Objects[oid]._oMissFlag)
 			return true;
 	}
 	return nMissileTable[dPiece[tile.x][tile.y]];
 }
 
-void UpdateMissileRendererData(MissileStruct &m)
+void UpdateMissileRendererData(Missile &m)
 {
 	m.position.tileForRendering = m.position.tile;
 	m.position.offsetForRendering = m.position.offset;
 
-	const MissileMovementDistrubution missileMovement = MissileData[m._mitype].MovementDistribution;
+	const MissileMovementDistrubution missileMovement = MissilesData[m._mitype].MovementDistribution;
 	// don't calculate missile position if they don't move
 	if (missileMovement == MissileMovementDistrubution::Disabled || m.position.velocity == Displacement {})
 		return;
@@ -178,7 +181,7 @@ void UpdateMissilesRendererData()
 
 	for (int i = 0; i < ActiveMissileCount; i++) {
 		assert(ActiveMissiles[i] < MAXMISSILES);
-		MissileStruct &m = Missiles[ActiveMissiles[i]];
+		Missile &m = Missiles[ActiveMissiles[i]];
 		UpdateMissileRendererData(m);
 		MissilesAtRenderingTile.insert(std::make_pair(m.position.tileForRendering, &m));
 	}
@@ -201,31 +204,9 @@ uint32_t sgdwCursHgtOld;
 
 bool dRendered[MAXDUNX][MAXDUNY];
 
-bool frameflag;
 int frameend;
 int framerate;
 int framestart;
-
-const char *const MonsterModeNames[] = {
-	"standing",
-	"walking (1)",
-	"walking (2)",
-	"walking (3)",
-	"attacking",
-	"getting hit",
-	"dying",
-	"attacking (special)",
-	"fading in",
-	"fading out",
-	"attacking (ranged)",
-	"standing (special)",
-	"attacking (special ranged)",
-	"delaying",
-	"charging",
-	"stoned",
-	"healing",
-	"talking"
-};
 
 const char *const PlayerModeNames[] = {
 	"standing",
@@ -269,7 +250,18 @@ void UndrawCursor(const Surface &out)
 
 bool ShouldShowCursor()
 {
-	return !(sgbControllerActive && !IsMovingMouseCursorWithController() && pcurs != CURSOR_TELEPORT && !invflag && (!chrflag || Players[MyPlayerId]._pStatPts <= 0));
+	if (!sgbControllerActive && !sgbTouchActive)
+		return true;
+	if (IsMovingMouseCursorWithController())
+		return true;
+	if (pcurs == CURSOR_TELEPORT)
+		return true;
+	if (invflag)
+		return true;
+	if (chrflag && Players[MyPlayerId]._pStatPts > 0)
+		return true;
+
+	return false;
 }
 
 /**
@@ -277,14 +269,14 @@ bool ShouldShowCursor()
  */
 void DrawCursor(const Surface &out)
 {
-	if (pcurs <= CURSOR_NONE || cursW == 0 || cursH == 0 || !ShouldShowCursor()) {
+	if (pcurs <= CURSOR_NONE || cursSize.width == 0 || cursSize.height == 0 || !ShouldShowCursor()) {
 		return;
 	}
 
 	// Copy the buffer before the item cursor and its 1px outline are drawn to a temporary buffer.
 	const int outlineWidth = IsItemSprite(pcurs) ? 1 : 0;
 
-	if (MousePosition.x < -cursW - outlineWidth || MousePosition.x - outlineWidth >= out.w() || MousePosition.y < -cursH - outlineWidth || MousePosition.y - outlineWidth >= out.h())
+	if (MousePosition.x < -cursSize.width - outlineWidth || MousePosition.x - outlineWidth >= out.w() || MousePosition.y < -cursSize.height - outlineWidth || MousePosition.y - outlineWidth >= out.h())
 		return;
 
 	constexpr auto Clip = [](int &pos, std::uint32_t &length, std::uint32_t posEnd) {
@@ -297,96 +289,149 @@ void DrawCursor(const Surface &out)
 	};
 
 	sgdwCursX = MousePosition.x - outlineWidth;
-	sgdwCursWdt = cursW + 2 * outlineWidth;
+	sgdwCursWdt = cursSize.width + 2 * outlineWidth;
 	Clip(sgdwCursX, sgdwCursWdt, out.w());
 
 	sgdwCursY = MousePosition.y - outlineWidth;
-	sgdwCursHgt = cursH + 2 * outlineWidth;
+	sgdwCursHgt = cursSize.height + 2 * outlineWidth;
 	Clip(sgdwCursY, sgdwCursHgt, out.h());
 
 	BlitCursor(sgSaveBack, sgdwCursWdt, out.at(sgdwCursX, sgdwCursY), out.pitch());
-	CelDrawCursor(out, MousePosition + Displacement { 0, cursH - 1 }, pcurs);
+	CelDrawCursor(out, MousePosition + Displacement { 0, cursSize.height - 1 }, pcurs);
 }
 
 /**
  * @brief Render a missile sprite
  * @param out Output buffer
- * @param m Pointer to MissileStruct struct
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param m Pointer to Missile struct
+ * @param targetBufferPosition Output buffer coordinate
  * @param pre Is the sprite in the background
  */
-void DrawMissilePrivate(const Surface &out, const MissileStruct *m, int sx, int sy, bool pre)
+void DrawMissilePrivate(const Surface &out, const Missile &missile, Point targetBufferPosition, bool pre)
 {
-	if (m->_miPreFlag != pre || !m->_miDrawFlag)
+	if (missile._miPreFlag != pre || !missile._miDrawFlag)
 		return;
 
-	if (m->_miAnimData == nullptr) {
-		Log("Draw Missile 2 type {}: NULL Cel Buffer", m->_mitype);
+	if (missile._miAnimData == nullptr) {
+		Log("Draw Missile 2 type {}: NULL Cel Buffer", missile._mitype);
 		return;
 	}
-	int nCel = m->_miAnimFrame;
-	const auto *frameTable = reinterpret_cast<const uint32_t *>(m->_miAnimData);
+	int nCel = missile._miAnimFrame;
+	const auto *frameTable = reinterpret_cast<const uint32_t *>(missile._miAnimData);
 	int frames = SDL_SwapLE32(frameTable[0]);
 	if (nCel < 1 || frames > 50 || nCel > frames) {
-		Log("Draw Missile 2: frame {} of {}, missile type=={}", nCel, frames, m->_mitype);
+		Log("Draw Missile 2: frame {} of {}, missile type=={}", nCel, frames, missile._mitype);
 		return;
 	}
-	int mx = sx + m->position.offsetForRendering.deltaX - m->_miAnimWidth2;
-	int my = sy + m->position.offsetForRendering.deltaY;
-	CelSprite cel { m->_miAnimData, m->_miAnimWidth };
-	if (m->_miUniqTrans != 0)
-		Cl2DrawLightTbl(out, mx, my, cel, m->_miAnimFrame, m->_miUniqTrans + 3);
-	else if (m->_miLightFlag)
-		Cl2DrawLight(out, mx, my, cel, m->_miAnimFrame);
+
+	const Point missileRenderPosition { targetBufferPosition + missile.position.offsetForRendering - Displacement { missile._miAnimWidth2, 0 } };
+	CelSprite cel { missile._miAnimData, missile._miAnimWidth };
+	if (missile._miUniqTrans != 0)
+		Cl2DrawLightTbl(out, missileRenderPosition.x, missileRenderPosition.y, cel, missile._miAnimFrame, missile._miUniqTrans + 3);
+	else if (missile._miLightFlag)
+		Cl2DrawLight(out, missileRenderPosition.x, missileRenderPosition.y, cel, missile._miAnimFrame);
 	else
-		Cl2Draw(out, mx, my, cel, m->_miAnimFrame);
+		Cl2Draw(out, missileRenderPosition.x, missileRenderPosition.y, cel, missile._miAnimFrame);
 }
 
 /**
  * @brief Render a missile sprites for a given tile
  * @param out Output buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  * @param pre Is the sprite in the background
  */
-void DrawMissile(const Surface &out, int x, int y, int sx, int sy, bool pre)
+void DrawMissile(const Surface &out, Point tilePosition, Point targetBufferPosition, bool pre)
 {
-	const auto range = MissilesAtRenderingTile.equal_range(Point { x, y });
+	const auto range = MissilesAtRenderingTile.equal_range(tilePosition);
 	for (auto it = range.first; it != range.second; it++) {
-		DrawMissilePrivate(out, it->second, sx, sy, pre);
+		DrawMissilePrivate(out, *it->second, targetBufferPosition, pre);
 	}
 }
 
 /**
  * @brief Render a monster sprite
  * @param out Output buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param mx Output buffer coordinate
- * @param my Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  * @param m Id of monster
  */
-void DrawMonster(const Surface &out, int x, int y, int mx, int my, const MonsterStruct &monster)
+void DrawMonster(const Surface &out, Point tilePosition, Point targetBufferPosition, const Monster &monster)
 {
 	if (monster.AnimInfo.pCelSprite == nullptr) {
 		Log("Draw Monster \"{}\": NULL Cel Buffer", monster.mName);
 		return;
 	}
 
+	constexpr auto getMonsterModeDisplayName = [](MonsterMode monsterMode) {
+		switch (monsterMode) {
+		case MonsterMode::Stand:
+			return "standing";
+
+		case MonsterMode::MoveNorthwards:
+			return "moving (northwards)";
+
+		case MonsterMode::MoveSouthwards:
+			return "moving (southwards)";
+
+		case MonsterMode::MoveSideways:
+			return "moving (sideways)";
+
+		case MonsterMode::MeleeAttack:
+			return "attacking (melee)";
+
+		case MonsterMode::HitRecovery:
+			return "getting hit";
+
+		case MonsterMode::Death:
+			return "dying";
+
+		case MonsterMode::SpecialMeleeAttack:
+			return "attacking (special melee)";
+
+		case MonsterMode::FadeIn:
+			return "fading in";
+
+		case MonsterMode::FadeOut:
+			return "fading out";
+
+		case MonsterMode::RangedAttack:
+			return "attacking (ranged)";
+
+		case MonsterMode::SpecialStand:
+			return "standing (special)";
+
+		case MonsterMode::SpecialRangedAttack:
+			return "attacking (special ranged)";
+
+		case MonsterMode::Delay:
+			return "delaying";
+
+		case MonsterMode::Charge:
+			return "charging";
+
+		case MonsterMode::Petrified:
+			return "petrified";
+
+		case MonsterMode::Heal:
+			return "healing";
+
+		case MonsterMode::Talk:
+			return "talking";
+
+		default:
+			app_fatal("Invalid monster mode.");
+		}
+	};
+
 	int nCel = monster.AnimInfo.GetFrameToUseForRendering();
 	const auto *frameTable = reinterpret_cast<const uint32_t *>(monster.AnimInfo.pCelSprite->Data());
 	int frames = SDL_SwapLE32(frameTable[0]);
 	if (nCel < 1 || frames > 50 || nCel > frames) {
-		const char *szMode = "unknown action";
-		if (monster._mmode <= 17)
-			szMode = MonsterModeNames[monster._mmode];
 		Log(
 		    "Draw Monster \"{}\" {}: facing {}, frame {} of {}",
 		    monster.mName,
-		    szMode,
+		    getMonsterModeDisplayName(monster._mmode),
 		    monster._mdir,
 		    nCel,
 		    frames);
@@ -395,29 +440,29 @@ void DrawMonster(const Surface &out, int x, int y, int mx, int my, const Monster
 
 	const auto &cel = *monster.AnimInfo.pCelSprite;
 
-	if ((dFlags[x][y] & BFLAG_LIT) == 0) {
-		Cl2DrawLightTbl(out, mx, my, cel, nCel, 1);
+	if (!IsTileLit(tilePosition)) {
+		Cl2DrawLightTbl(out, targetBufferPosition.x, targetBufferPosition.y, cel, nCel, 1);
 		return;
 	}
 	int trans = 0;
 	if (monster._uniqtype != 0)
 		trans = monster._uniqtrans + 4;
-	if (monster._mmode == MM_STONE)
+	if (monster._mmode == MonsterMode::Petrified)
 		trans = 2;
 	if (Players[MyPlayerId]._pInfraFlag && LightTableIndex > 8)
 		trans = 1;
 	if (trans != 0)
-		Cl2DrawLightTbl(out, mx, my, cel, nCel, trans);
+		Cl2DrawLightTbl(out, targetBufferPosition.x, targetBufferPosition.y, cel, nCel, trans);
 	else
-		Cl2DrawLight(out, mx, my, cel, nCel);
+		Cl2DrawLight(out, targetBufferPosition.x, targetBufferPosition.y, cel, nCel);
 }
 
 /**
  * @brief Helper for rendering a specific player icon (Mana Shield or Reflect)
  */
-void DrawPlayerIconHelper(const Surface &out, int pnum, missile_graphic_id missileGraphicId, int x, int y, bool lighting)
+void DrawPlayerIconHelper(const Surface &out, int pnum, missile_graphic_id missileGraphicId, Point position, bool lighting)
 {
-	x += CalculateWidth2(Players[pnum].AnimInfo.pCelSprite->Width()) - MissileSpriteData[missileGraphicId].animWidth2;
+	position.x += CalculateWidth2(Players[pnum].AnimInfo.pCelSprite->Width()) - MissileSpriteData[missileGraphicId].animWidth2;
 
 	int width = MissileSpriteData[missileGraphicId].animWidth;
 	byte *pCelBuff = MissileSpriteData[missileGraphicId].animData[0].get();
@@ -425,50 +470,47 @@ void DrawPlayerIconHelper(const Surface &out, int pnum, missile_graphic_id missi
 	CelSprite cel { pCelBuff, width };
 
 	if (pnum == MyPlayerId) {
-		Cl2Draw(out, x, y, cel, 1);
+		Cl2Draw(out, position.x, position.y, cel, 1);
 		return;
 	}
 
 	if (lighting) {
-		Cl2DrawLightTbl(out, x, y, cel, 1, 1);
+		Cl2DrawLightTbl(out, position.x, position.y, cel, 1, 1);
 		return;
 	}
 
-	Cl2DrawLight(out, x, y, cel, 1);
+	Cl2DrawLight(out, position.x, position.y, cel, 1);
 }
 
 /**
  * @brief Helper for rendering player icons (Mana Shield and Reflect)
  * @param out Output buffer
  * @param pnum Player id
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param position Output buffer coordinates
  * @param lighting Should lighting be applied
  */
-void DrawPlayerIcons(const Surface &out, int pnum, int x, int y, bool lighting)
+void DrawPlayerIcons(const Surface &out, int pnum, Point position, bool lighting)
 {
 	auto &player = Players[pnum];
 	if (player.pManaShield)
-		DrawPlayerIconHelper(out, pnum, MFILE_MANASHLD, x, y, lighting);
+		DrawPlayerIconHelper(out, pnum, MFILE_MANASHLD, position, lighting);
 	if (player.wReflections > 0)
-		DrawPlayerIconHelper(out, pnum, MFILE_REFLECT, x, y + 16, lighting);
+		DrawPlayerIconHelper(out, pnum, MFILE_REFLECT, position + Displacement { 0, 16 }, lighting);
 }
 
 /**
  * @brief Render a player sprite
  * @param out Output buffer
  * @param pnum Player id
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param px Output buffer coordinate
- * @param py Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  * @param pCelBuff sprite buffer
  * @param nCel frame
  * @param nWidth width
  */
-void DrawPlayer(const Surface &out, int pnum, int x, int y, int px, int py)
+void DrawPlayer(const Surface &out, int pnum, Point tilePosition, Point targetBufferPosition)
 {
-	if ((dFlags[x][y] & BFLAG_LIT) == 0 && !Players[MyPlayerId]._pInfraFlag && leveltype != DTYPE_TOWN) {
+	if (!IsTileLit(tilePosition) && !Players[MyPlayerId]._pInfraFlag && leveltype != DTYPE_TOWN) {
 		return;
 	}
 
@@ -499,17 +541,17 @@ void DrawPlayer(const Surface &out, int pnum, int x, int y, int px, int py)
 	}
 
 	if (pnum == pcursplr)
-		Cl2DrawOutline(out, 165, px, py, *pCelSprite, nCel);
+		Cl2DrawOutline(out, 165, targetBufferPosition.x, targetBufferPosition.y, *pCelSprite, nCel);
 
 	if (pnum == MyPlayerId) {
-		Cl2Draw(out, px, py, *pCelSprite, nCel);
-		DrawPlayerIcons(out, pnum, px, py, true);
+		Cl2Draw(out, targetBufferPosition.x, targetBufferPosition.y, *pCelSprite, nCel);
+		DrawPlayerIcons(out, pnum, targetBufferPosition, true);
 		return;
 	}
 
-	if ((dFlags[x][y] & BFLAG_LIT) == 0 || (Players[MyPlayerId]._pInfraFlag && LightTableIndex > 8)) {
-		Cl2DrawLightTbl(out, px, py, *pCelSprite, nCel, 1);
-		DrawPlayerIcons(out, pnum, px, py, true);
+	if (!IsTileLit(tilePosition) || (Players[MyPlayerId]._pInfraFlag && LightTableIndex > 8)) {
+		Cl2DrawLightTbl(out, targetBufferPosition.x, targetBufferPosition.y, *pCelSprite, nCel, 1);
+		DrawPlayerIcons(out, pnum, targetBufferPosition, true);
 		return;
 	}
 
@@ -519,8 +561,8 @@ void DrawPlayer(const Surface &out, int pnum, int x, int y, int px, int py)
 	else
 		LightTableIndex -= 5;
 
-	Cl2DrawLight(out, px, py, *pCelSprite, nCel);
-	DrawPlayerIcons(out, pnum, px, py, false);
+	Cl2DrawLight(out, targetBufferPosition.x, targetBufferPosition.y, *pCelSprite, nCel);
+	DrawPlayerIcons(out, pnum, targetBufferPosition, false);
 
 	LightTableIndex = l;
 }
@@ -528,22 +570,20 @@ void DrawPlayer(const Surface &out, int pnum, int x, int y, int px, int py)
 /**
  * @brief Render a player sprite
  * @param out Output buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  */
-void DrawDeadPlayer(const Surface &out, int x, int y, int sx, int sy)
+void DrawDeadPlayer(const Surface &out, Point tilePosition, Point targetBufferPosition)
 {
-	dFlags[x][y] &= ~BFLAG_DEAD_PLAYER;
+	dFlags[tilePosition.x][tilePosition.y] &= ~DungeonFlag::DeadPlayer;
 
 	for (int i = 0; i < MAX_PLRS; i++) {
 		auto &player = Players[i];
-		if (player.plractive && player._pHitPoints == 0 && player.plrlevel == (BYTE)currlevel && player.position.tile.x == x && player.position.tile.y == y) {
-			dFlags[x][y] |= BFLAG_DEAD_PLAYER;
-			int px = sx + player.position.offset.deltaX - CalculateWidth2(player.AnimInfo.pCelSprite == nullptr ? 96 : player.AnimInfo.pCelSprite->Width());
-			int py = sy + player.position.offset.deltaY;
-			DrawPlayer(out, i, x, y, px, py);
+		if (player.plractive && player._pHitPoints == 0 && player.plrlevel == (BYTE)currlevel && player.position.tile == tilePosition) {
+			dFlags[tilePosition.x][tilePosition.y] |= DungeonFlag::DeadPlayer;
+			const Displacement center { CalculateWidth2(player.AnimInfo.pCelSprite == nullptr ? 96 : player.AnimInfo.pCelSprite->Width()), 0 };
+			const Point playerRenderPosition { targetBufferPosition + player.position.offset - center };
+			DrawPlayer(out, i, tilePosition, playerRenderPosition);
 		}
 	}
 }
@@ -551,89 +591,83 @@ void DrawDeadPlayer(const Surface &out, int x, int y, int sx, int sy)
 /**
  * @brief Render an object sprite
  * @param out Output buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param ox Output buffer coordinate
- * @param oy Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  * @param pre Is the sprite in the background
  */
-void DrawObject(const Surface &out, int x, int y, int ox, int oy, bool pre)
+void DrawObject(const Surface &out, Point tilePosition, Point targetBufferPosition, bool pre)
 {
-	int8_t bv = dObject[x][y];
-	if (bv == 0 || LightTableIndex >= LightsMax)
+	if (LightTableIndex >= LightsMax) {
 		return;
-
-	Point objectPosition {};
-
-	if (bv > 0) {
-		bv = bv - 1;
-		if (Objects[bv]._oPreFlag != pre)
-			return;
-		objectPosition.x = ox - CalculateWidth2(Objects[bv]._oAnimWidth);
-		objectPosition.y = oy;
-	} else {
-		bv = -(bv + 1);
-		if (Objects[bv]._oPreFlag != pre)
-			return;
-		int xx = Objects[bv].position.x - x;
-		int yy = Objects[bv].position.y - y;
-		objectPosition.x = (xx * TILE_WIDTH / 2) + ox - CalculateWidth2(Objects[bv]._oAnimWidth) - (yy * TILE_WIDTH / 2);
-		objectPosition.y = oy + (yy * TILE_HEIGHT / 2) + (xx * TILE_HEIGHT / 2);
 	}
 
-	assert(bv >= 0 && bv < MAXOBJECTS);
+	auto objectId = abs(dObject[tilePosition.x][tilePosition.y]) - 1;
+	if (objectId < 0) {
+		return;
+	}
 
-	byte *pCelBuff = Objects[bv]._oAnimData;
+	Object &objectToDraw = Objects[objectId];
+	if (objectToDraw._oPreFlag != pre) {
+		return;
+	}
+
+	Point screenPosition = targetBufferPosition - Displacement { CalculateWidth2(objectToDraw._oAnimWidth), 0 };
+	if (objectToDraw.position != tilePosition) {
+		// drawing a large or offset object, calculate the correct position for the center of the sprite
+		Displacement screenOffset = objectToDraw.position - tilePosition;
+		screenPosition -= screenOffset.WorldToScreen();
+	}
+
+	byte *pCelBuff = objectToDraw._oAnimData;
 	if (pCelBuff == nullptr) {
-		Log("Draw Object type {}: NULL Cel Buffer", Objects[bv]._otype);
+		Log("Draw Object type {}: NULL Cel Buffer", objectToDraw._otype);
 		return;
 	}
 
-	uint32_t nCel = Objects[bv]._oAnimFrame;
+	uint32_t nCel = objectToDraw._oAnimFrame;
 	uint32_t frames = LoadLE32(pCelBuff);
 	if (nCel < 1 || frames > 50 || nCel > frames) {
-		Log("Draw Object: frame {} of {}, object type=={}", nCel, frames, Objects[bv]._otype);
+		Log("Draw Object: frame {} of {}, object type=={}", nCel, frames, objectToDraw._otype);
 		return;
 	}
 
-	CelSprite cel { Objects[bv]._oAnimData, Objects[bv]._oAnimWidth };
-	if (bv == pcursobj)
-		CelBlitOutlineTo(out, 194, objectPosition, cel, Objects[bv]._oAnimFrame);
-	if (Objects[bv]._oLight) {
-		CelClippedDrawLightTo(out, objectPosition, cel, Objects[bv]._oAnimFrame);
+	CelSprite cel { objectToDraw._oAnimData, objectToDraw._oAnimWidth };
+	if (pcursobj != -1 && &objectToDraw == &Objects[pcursobj]) {
+		CelBlitOutlineTo(out, 194, screenPosition, cel, objectToDraw._oAnimFrame);
+	}
+	if (objectToDraw._oLight) {
+		CelClippedDrawLightTo(out, screenPosition, cel, objectToDraw._oAnimFrame);
 	} else {
-		CelClippedDrawTo(out, objectPosition, cel, Objects[bv]._oAnimFrame);
+		CelClippedDrawTo(out, screenPosition, cel, objectToDraw._oAnimFrame);
 	}
 }
 
-static void DrawDungeon(const Surface & /*out*/, int /*sx*/, int /*sy*/, int /*dx*/, int /*dy*/);
+static void DrawDungeon(const Surface & /*out*/, Point /*tilePosition*/, Point /*targetBufferPosition*/);
 
 /**
  * @brief Render a cell
  * @param out Target buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param sx Target buffer coordinate
- * @param sy Target buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Target buffer coordinates
  */
-void DrawCell(const Surface &out, int x, int y, int sx, int sy)
+void DrawCell(const Surface &out, Point tilePosition, Point targetBufferPosition)
 {
-	MICROS *pMap = &dpiece_defs_map_2[x][y];
-	level_piece_id = dPiece[x][y];
-	cel_transparency_active = nTransTable[level_piece_id] && TransList[dTransVal[x][y]];
+	MICROS *pMap = &dpiece_defs_map_2[tilePosition.x][tilePosition.y];
+	level_piece_id = dPiece[tilePosition.x][tilePosition.y];
+	cel_transparency_active = nTransTable[level_piece_id] && TransList[dTransVal[tilePosition.x][tilePosition.y]];
 	cel_foliage_active = !nSolidTable[level_piece_id];
 	for (int i = 0; i < (MicroTileLen / 2); i++) {
 		level_cel_block = pMap->mt[2 * i];
 		if (level_cel_block != 0) {
 			arch_draw_type = i == 0 ? 1 : 0;
-			RenderTile(out, sx, sy);
+			RenderTile(out, targetBufferPosition);
 		}
 		level_cel_block = pMap->mt[2 * i + 1];
 		if (level_cel_block != 0) {
 			arch_draw_type = i == 0 ? 2 : 0;
-			RenderTile(out, sx + TILE_WIDTH / 2, sy);
+			RenderTile(out, targetBufferPosition + Displacement { TILE_WIDTH / 2, 0 });
 		}
-		sy -= TILE_HEIGHT;
+		targetBufferPosition.y -= TILE_HEIGHT;
 	}
 	cel_foliage_active = false;
 }
@@ -641,89 +675,81 @@ void DrawCell(const Surface &out, int x, int y, int sx, int sy)
 /**
  * @brief Render a floor tiles
  * @param out Target buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param sx Target buffer coordinate
- * @param sy Target buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Target buffer coordinate
  */
-void DrawFloor(const Surface &out, int x, int y, int sx, int sy)
+void DrawFloor(const Surface &out, Point tilePosition, Point targetBufferPosition)
 {
 	cel_transparency_active = false;
-	LightTableIndex = dLight[x][y];
+	LightTableIndex = dLight[tilePosition.x][tilePosition.y];
 
 	arch_draw_type = 1; // Left
-	level_cel_block = dpiece_defs_map_2[x][y].mt[0];
+	level_cel_block = dpiece_defs_map_2[tilePosition.x][tilePosition.y].mt[0];
 	if (level_cel_block != 0) {
-		RenderTile(out, sx, sy);
+		RenderTile(out, targetBufferPosition);
 	}
 	arch_draw_type = 2; // Right
-	level_cel_block = dpiece_defs_map_2[x][y].mt[1];
+	level_cel_block = dpiece_defs_map_2[tilePosition.x][tilePosition.y].mt[1];
 	if (level_cel_block != 0) {
-		RenderTile(out, sx + TILE_WIDTH / 2, sy);
+		RenderTile(out, targetBufferPosition + Displacement { TILE_WIDTH / 2, 0 });
 	}
 }
 
 /**
  * @brief Draw item for a given tile
  * @param out Output buffer
- * @param y dPiece coordinate
- * @param x dPiece coordinate
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  * @param pre Is the sprite in the background
  */
-void DrawItem(const Surface &out, int x, int y, int sx, int sy, bool pre)
+void DrawItem(const Surface &out, Point tilePosition, Point targetBufferPosition, bool pre)
 {
-	int8_t bItem = dItem[x][y];
+	int8_t bItem = dItem[tilePosition.x][tilePosition.y];
 
 	if (bItem <= 0)
 		return;
 
-	ItemStruct *pItem = &Items[bItem - 1];
-	if (pItem->_iPostDraw == pre)
+	auto &item = Items[bItem - 1];
+	if (item._iPostDraw == pre)
 		return;
 
-	const auto *cel = pItem->AnimInfo.pCelSprite;
+	const auto *cel = item.AnimInfo.pCelSprite;
 	if (cel == nullptr) {
-		Log("Draw Item \"{}\" 1: NULL CelSprite", pItem->_iIName);
+		Log("Draw Item \"{}\" 1: NULL CelSprite", item._iIName);
 		return;
 	}
 
-	int nCel = pItem->AnimInfo.GetFrameToUseForRendering();
+	int nCel = item.AnimInfo.GetFrameToUseForRendering();
 	int frames = SDL_SwapLE32(*(DWORD *)cel->Data());
 	if (nCel < 1 || frames > 50 || nCel > frames) {
-		Log("Draw \"{}\" Item 1: frame {} of {}, item type=={}", pItem->_iIName, nCel, frames, pItem->_itype);
+		Log("Draw \"{}\" Item 1: frame {} of {}, item type=={}", item._iIName, nCel, frames, item._itype);
 		return;
 	}
 
-	int px = sx - CalculateWidth2(cel->Width());
-	const Point position { px, sy };
+	int px = targetBufferPosition.x - CalculateWidth2(cel->Width());
+	const Point position { px, targetBufferPosition.y };
 	if (bItem - 1 == pcursitem || AutoMapShowItems) {
-		CelBlitOutlineTo(out, GetOutlineColor(*pItem, false), position, *cel, nCel);
+		CelBlitOutlineTo(out, GetOutlineColor(item, false), position, *cel, nCel);
 	}
 	CelClippedDrawLightTo(out, position, *cel, nCel);
-	if (pItem->AnimInfo.CurrentFrame == pItem->AnimInfo.NumberOfFrames || pItem->_iCurs == ICURS_MAGIC_ROCK)
-		AddItemToLabelQueue(bItem - 1, px, sy);
+	if (item.AnimInfo.CurrentFrame == item.AnimInfo.NumberOfFrames || item._iCurs == ICURS_MAGIC_ROCK)
+		AddItemToLabelQueue(bItem - 1, px, targetBufferPosition.y);
 }
 
 /**
  * @brief Check if and how a monster should be rendered
  * @param out Output buffer
- * @param y dPiece coordinate
- * @param x dPiece coordinate
- * @param oy dPiece Y offset
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  */
-void DrawMonsterHelper(const Surface &out, int x, int y, int oy, int sx, int sy)
+void DrawMonsterHelper(const Surface &out, Point tilePosition, Point targetBufferPosition)
 {
-	int mi = dMonster[x][y + oy];
-	mi = mi > 0 ? mi - 1 : -(mi + 1);
+	int mi = abs(dMonster[tilePosition.x][tilePosition.y]) - 1;
 
 	if (leveltype == DTYPE_TOWN) {
 		auto &towner = Towners[mi];
-		int px = sx - CalculateWidth2(towner._tAnimWidth);
-		const Point position { px, sy };
+		int px = targetBufferPosition.x - CalculateWidth2(towner._tAnimWidth);
+		const Point position { px, targetBufferPosition.y };
 		if (mi == pcursmonst) {
 			CelBlitOutlineTo(out, 166, position, CelSprite(towner._tAnimData, towner._tAnimWidth), towner._tAnimFrame);
 		}
@@ -732,7 +758,7 @@ void DrawMonsterHelper(const Surface &out, int x, int y, int oy, int sx, int sy)
 		return;
 	}
 
-	if ((dFlags[x][y] & BFLAG_LIT) == 0 && !Players[MyPlayerId]._pInfraFlag)
+	if (!IsTileLit(tilePosition) && !Players[MyPlayerId]._pInfraFlag)
 		return;
 
 	if (mi < 0 || mi >= MAXMONSTERS) {
@@ -757,26 +783,22 @@ void DrawMonsterHelper(const Surface &out, int x, int y, int oy, int sx, int sy)
 		offset = GetOffsetForWalking(monster.AnimInfo, monster._mdir);
 	}
 
-	int px = sx + offset.deltaX - CalculateWidth2(cel.Width());
-	int py = sy + offset.deltaY;
+	const Point monsterRenderPosition { targetBufferPosition + offset - Displacement { CalculateWidth2(cel.Width()), 0 } };
 	if (mi == pcursmonst) {
-		Cl2DrawOutline(out, 233, px, py, cel, monster.AnimInfo.GetFrameToUseForRendering());
+		Cl2DrawOutline(out, 233, monsterRenderPosition.x, monsterRenderPosition.y, cel, monster.AnimInfo.GetFrameToUseForRendering());
 	}
-	DrawMonster(out, x, y, px, py, monster);
+	DrawMonster(out, tilePosition, monsterRenderPosition, monster);
 }
 
 /**
  * @brief Check if and how a player should be rendered
  * @param out Output buffer
- * @param y dPiece coordinate
- * @param x dPiece coordinate
- * @param sx Output buffer coordinate
- * @param sy Output buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Output buffer coordinates
  */
-void DrawPlayerHelper(const Surface &out, int x, int y, int sx, int sy)
+void DrawPlayerHelper(const Surface &out, Point tilePosition, Point targetBufferPosition)
 {
-	int8_t p = dPlayer[x][y];
-	p = p > 0 ? p - 1 : -(p + 1);
+	int8_t p = abs(dPlayer[tilePosition.x][tilePosition.y]) - 1;
 
 	if (p < 0 || p >= MAX_PLRS) {
 		Log("draw player: tried to draw illegal player {}", p);
@@ -788,57 +810,50 @@ void DrawPlayerHelper(const Surface &out, int x, int y, int sx, int sy)
 	if (player.IsWalking()) {
 		offset = GetOffsetForWalking(player.AnimInfo, player._pdir);
 	}
-	int px = sx + offset.deltaX - CalculateWidth2(player.AnimInfo.pCelSprite == nullptr ? 96 : player.AnimInfo.pCelSprite->Width());
-	int py = sy + offset.deltaY;
 
-	DrawPlayer(out, p, x, y, px, py);
+	const Displacement center { CalculateWidth2(player.AnimInfo.pCelSprite == nullptr ? 96 : player.AnimInfo.pCelSprite->Width()), 0 };
+	const Point playerRenderPosition { targetBufferPosition + offset - center };
+
+	DrawPlayer(out, p, tilePosition, playerRenderPosition);
 }
 
 /**
  * @brief Render object sprites
  * @param out Target buffer
- * @param sx dPiece coordinate
- * @param sy dPiece coordinate
- * @param dx Target buffer coordinate
- * @param dy Target buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Target buffer coordinates
  */
-void DrawDungeon(const Surface &out, int sx, int sy, int dx, int dy)
+void DrawDungeon(const Surface &out, Point tilePosition, Point targetBufferPosition)
 {
-	assert(sx >= 0 && sx < MAXDUNX);
-	assert(sy >= 0 && sy < MAXDUNY);
+	assert(InDungeonBounds(tilePosition));
 
-	if (dRendered[sx][sy])
+	if (dRendered[tilePosition.x][tilePosition.y])
 		return;
-	dRendered[sx][sy] = true;
+	dRendered[tilePosition.x][tilePosition.y] = true;
 
-	LightTableIndex = dLight[sx][sy];
+	LightTableIndex = dLight[tilePosition.x][tilePosition.y];
 
-	DrawCell(out, sx, sy, dx, dy);
+	DrawCell(out, tilePosition, targetBufferPosition);
 
-	int8_t bFlag = dFlags[sx][sy];
-	int8_t bDead = dDead[sx][sy];
-	int8_t bMap = dTransVal[sx][sy];
-
-	int negMon = 0;
-	if (sy > 0) // check for OOB
-		negMon = dMonster[sx][sy - 1];
+	int8_t bDead = dCorpse[tilePosition.x][tilePosition.y];
+	int8_t bMap = dTransVal[tilePosition.x][tilePosition.y];
 
 #ifdef _DEBUG
-	if (DebugVision && (bFlag & BFLAG_LIT) != 0) {
-		CelClippedDrawTo(out, { dx, dy }, *pSquareCel, 1);
+	if (DebugVision && IsTileLit(tilePosition)) {
+		CelClippedDrawTo(out, targetBufferPosition, *pSquareCel, 1);
 	}
+	DebugCoordsMap[tilePosition.x + tilePosition.y * MAXDUNX] = targetBufferPosition;
 #endif
 
 	if (MissilePreFlag) {
-		DrawMissile(out, sx, sy, dx, dy, true);
+		DrawMissile(out, tilePosition, targetBufferPosition, true);
 	}
 
 	if (LightTableIndex < LightsMax && bDead != 0) {
 		do {
-			DeadStruct *pDeadGuy = &Dead[(bDead & 0x1F) - 1];
-			auto dd = static_cast<Direction>((bDead >> 5) & 7);
-			int px = dx - CalculateWidth2(pDeadGuy->width);
-			const byte *pCelBuff = pDeadGuy->data[dd];
+			Corpse *pDeadGuy = &Corpses[(bDead & 0x1F) - 1];
+			int px = targetBufferPosition.x - CalculateWidth2(pDeadGuy->width);
+			const byte *pCelBuff = pDeadGuy->data[(bDead >> 5) & 7];
 			assert(pCelBuff != nullptr);
 			const auto *frameTable = reinterpret_cast<const uint32_t *>(pCelBuff);
 			int frames = SDL_SwapLE32(frameTable[0]);
@@ -848,37 +863,30 @@ void DrawDungeon(const Surface &out, int sx, int sy, int dx, int dy)
 				break;
 			}
 			if (pDeadGuy->translationPaletteIndex != 0) {
-				Cl2DrawLightTbl(out, px, dy, CelSprite(pCelBuff, pDeadGuy->width), nCel, pDeadGuy->translationPaletteIndex);
+				Cl2DrawLightTbl(out, px, targetBufferPosition.y, CelSprite(pCelBuff, pDeadGuy->width), nCel, pDeadGuy->translationPaletteIndex);
 			} else {
-				Cl2DrawLight(out, px, dy, CelSprite(pCelBuff, pDeadGuy->width), nCel);
+				Cl2DrawLight(out, px, targetBufferPosition.y, CelSprite(pCelBuff, pDeadGuy->width), nCel);
 			}
 		} while (false);
 	}
-	DrawObject(out, sx, sy, dx, dy, true);
-	DrawItem(out, sx, sy, dx, dy, true);
-	if ((bFlag & BFLAG_PLAYERLR) != 0) {
-		int syy = sy - 1;
-		assert(syy >= 0 && syy < MAXDUNY);
-		DrawPlayerHelper(out, sx, syy, dx, dy);
+	DrawObject(out, tilePosition, targetBufferPosition, true);
+	DrawItem(out, tilePosition, targetBufferPosition, true);
+
+	if (TileContainsDeadPlayer(tilePosition)) {
+		DrawDeadPlayer(out, tilePosition, targetBufferPosition);
 	}
-	if ((bFlag & BFLAG_MONSTLR) != 0 && negMon < 0) {
-		DrawMonsterHelper(out, sx, sy, -1, dx, dy);
+	if (dPlayer[tilePosition.x][tilePosition.y] > 0) {
+		DrawPlayerHelper(out, tilePosition, targetBufferPosition);
 	}
-	if ((bFlag & BFLAG_DEAD_PLAYER) != 0) {
-		DrawDeadPlayer(out, sx, sy, dx, dy);
+	if (dMonster[tilePosition.x][tilePosition.y] > 0) {
+		DrawMonsterHelper(out, tilePosition, targetBufferPosition);
 	}
-	if (dPlayer[sx][sy] > 0) {
-		DrawPlayerHelper(out, sx, sy, dx, dy);
-	}
-	if (dMonster[sx][sy] > 0) {
-		DrawMonsterHelper(out, sx, sy, 0, dx, dy);
-	}
-	DrawMissile(out, sx, sy, dx, dy, false);
-	DrawObject(out, sx, sy, dx, dy, false);
-	DrawItem(out, sx, sy, dx, dy, false);
+	DrawMissile(out, tilePosition, targetBufferPosition, false);
+	DrawObject(out, tilePosition, targetBufferPosition, false);
+	DrawItem(out, tilePosition, targetBufferPosition, false);
 
 	if (leveltype != DTYPE_TOWN) {
-		char bArch = dSpecial[sx][sy];
+		char bArch = dSpecial[tilePosition.x][tilePosition.y];
 		if (bArch != 0) {
 			cel_transparency_active = TransList[bMap];
 #ifdef _DEBUG
@@ -886,7 +894,7 @@ void DrawDungeon(const Surface &out, int sx, int sy, int dx, int dy)
 				cel_transparency_active = false; // Turn transparency off here for debugging
 			}
 #endif
-			CelClippedBlitLightTransTo(out, { dx, dy }, *pSpecialCels, bArch);
+			CelClippedBlitLightTransTo(out, targetBufferPosition, *pSpecialCels, bArch);
 #ifdef _DEBUG
 			if (GetAsyncKeyState(DVL_VK_MENU)) {
 				cel_transparency_active = TransList[bMap]; // Turn transparency back to its normal state
@@ -897,10 +905,10 @@ void DrawDungeon(const Surface &out, int sx, int sy, int dx, int dy)
 		// Tree leaves should always cover player when entering or leaving the tile,
 		// So delay the rendering until after the next row is being drawn.
 		// This could probably have been better solved by sprites in screen space.
-		if (sx > 0 && sy > 0 && dy > TILE_HEIGHT) {
-			char bArch = dSpecial[sx - 1][sy - 1];
+		if (tilePosition.x > 0 && tilePosition.y > 0 && targetBufferPosition.y > TILE_HEIGHT) {
+			char bArch = dSpecial[tilePosition.x - 1][tilePosition.y - 1];
 			if (bArch != 0) {
-				CelDrawTo(out, { dx, dy - TILE_HEIGHT }, *pSpecialCels, bArch);
+				CelDrawTo(out, targetBufferPosition + Displacement { 0, -TILE_HEIGHT }, *pSpecialCels, bArch);
 			}
 		}
 	}
@@ -909,45 +917,43 @@ void DrawDungeon(const Surface &out, int sx, int sy, int dx, int dy)
 /**
  * @brief Render a row of tiles
  * @param out Buffer to render to
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param sx Target buffer coordinate
- * @param sy Target buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Target buffer coordinates
  * @param rows Number of rows
  * @param columns Tile in a row
  */
-void DrawFloor(const Surface &out, int x, int y, int sx, int sy, int rows, int columns)
+void DrawFloor(const Surface &out, Point tilePosition, Point targetBufferPosition, int rows, int columns)
 {
 	for (int i = 0; i < rows; i++) {
 		for (int j = 0; j < columns; j++) {
-			if (x >= 0 && x < MAXDUNX && y >= 0 && y < MAXDUNY) {
-				level_piece_id = dPiece[x][y];
+			if (InDungeonBounds(tilePosition)) {
+				level_piece_id = dPiece[tilePosition.x][tilePosition.y];
 				if (level_piece_id != 0) {
 					if (!nSolidTable[level_piece_id])
-						DrawFloor(out, x, y, sx, sy);
+						DrawFloor(out, tilePosition, targetBufferPosition);
 				} else {
-					world_draw_black_tile(out, sx, sy);
+					world_draw_black_tile(out, targetBufferPosition.x, targetBufferPosition.y);
 				}
 			} else {
-				world_draw_black_tile(out, sx, sy);
+				world_draw_black_tile(out, targetBufferPosition.x, targetBufferPosition.y);
 			}
-			ShiftGrid(&x, &y, 1, 0);
-			sx += TILE_WIDTH;
+			tilePosition += Direction::East;
+			targetBufferPosition.x += TILE_WIDTH;
 		}
 		// Return to start of row
-		ShiftGrid(&x, &y, -columns, 0);
-		sx -= columns * TILE_WIDTH;
+		tilePosition += Displacement(Direction::West) * columns;
+		targetBufferPosition.x -= columns * TILE_WIDTH;
 
 		// Jump to next row
-		sy += TILE_HEIGHT / 2;
+		targetBufferPosition.y += TILE_HEIGHT / 2;
 		if ((i & 1) != 0) {
-			x++;
+			tilePosition.x++;
 			columns--;
-			sx += TILE_WIDTH / 2;
+			targetBufferPosition.x += TILE_WIDTH / 2;
 		} else {
-			y++;
+			tilePosition.y++;
 			columns++;
-			sx -= TILE_WIDTH / 2;
+			targetBufferPosition.x -= TILE_WIDTH / 2;
 		}
 	}
 }
@@ -958,14 +964,12 @@ void DrawFloor(const Surface &out, int x, int y, int sx, int sy, int rows, int c
 /**
  * @brief Render a row of tile
  * @param out Output buffer
- * @param x dPiece coordinate
- * @param y dPiece coordinate
- * @param sx Buffer coordinate
- * @param sy Buffer coordinate
+ * @param tilePosition dPiece coordinates
+ * @param targetBufferPosition Buffer coordinates
  * @param rows Number of rows
  * @param columns Tile in a row
  */
-void DrawTileContent(const Surface &out, int x, int y, int sx, int sy, int rows, int columns)
+void DrawTileContent(const Surface &out, Point tilePosition, Point targetBufferPosition, int rows, int columns)
 {
 	// Keep evaluating until MicroTiles can't affect screen
 	rows += MicroTileLen;
@@ -973,39 +977,39 @@ void DrawTileContent(const Surface &out, int x, int y, int sx, int sy, int rows,
 
 	for (int i = 0; i < rows; i++) {
 		for (int j = 0; j < columns; j++) {
-			if (x >= 0 && x < MAXDUNX && y >= 0 && y < MAXDUNY) {
-				if (x + 1 < MAXDUNX && y - 1 >= 0 && sx + TILE_WIDTH <= gnScreenWidth) {
+			if (InDungeonBounds(tilePosition)) {
+				if (tilePosition.x + 1 < MAXDUNX && tilePosition.y - 1 >= 0 && targetBufferPosition.x + TILE_WIDTH <= gnScreenWidth) {
 					// Render objects behind walls first to prevent sprites, that are moving
 					// between tiles, from poking through the walls as they exceed the tile bounds.
 					// A proper fix for this would probably be to layout the sceen and render by
 					// sprite screen position rather than tile position.
-					if (IsWall(x, y) && (IsWall(x + 1, y) || (x > 0 && IsWall(x - 1, y)))) { // Part of a wall aligned on the x-axis
-						if (IsWalkable(x + 1, y - 1) && IsWalkable(x, y - 1)) {              // Has walkable area behind it
-							DrawDungeon(out, x + 1, y - 1, sx + TILE_WIDTH, sy);
+					if (IsWall(tilePosition.x, tilePosition.y) && (IsWall(tilePosition.x + 1, tilePosition.y) || (tilePosition.x > 0 && IsWall(tilePosition.x - 1, tilePosition.y)))) { // Part of a wall aligned on the x-axis
+						if (IsWalkable(tilePosition.x + 1, tilePosition.y - 1) && IsWalkable(tilePosition.x, tilePosition.y - 1)) {                                                     // Has walkable area behind it
+							DrawDungeon(out, tilePosition + Direction::East, { targetBufferPosition.x + TILE_WIDTH, targetBufferPosition.y });
 						}
 					}
 				}
-				if (dPiece[x][y] != 0) {
-					DrawDungeon(out, x, y, sx, sy);
+				if (dPiece[tilePosition.x][tilePosition.y] != 0) {
+					DrawDungeon(out, tilePosition, targetBufferPosition);
 				}
 			}
-			ShiftGrid(&x, &y, 1, 0);
-			sx += TILE_WIDTH;
+			tilePosition += Direction::East;
+			targetBufferPosition.x += TILE_WIDTH;
 		}
 		// Return to start of row
-		ShiftGrid(&x, &y, -columns, 0);
-		sx -= columns * TILE_WIDTH;
+		tilePosition += Displacement(Direction::West) * columns;
+		targetBufferPosition.x -= columns * TILE_WIDTH;
 
 		// Jump to next row
-		sy += TILE_HEIGHT / 2;
+		targetBufferPosition.y += TILE_HEIGHT / 2;
 		if ((i & 1) != 0) {
-			x++;
+			tilePosition.x++;
 			columns--;
-			sx += TILE_WIDTH / 2;
+			targetBufferPosition.x += TILE_WIDTH / 2;
 		} else {
-			y++;
+			tilePosition.y++;
 			columns++;
-			sx -= TILE_WIDTH / 2;
+			targetBufferPosition.x -= TILE_WIDTH / 2;
 		}
 	}
 }
@@ -1065,20 +1069,17 @@ void Zoom(const Surface &out)
 	}
 }
 
-int tileOffsetX;
-int tileOffsetY;
-int tileShiftX;
-int tileShiftY;
+Displacement tileOffset;
+Displacement tileShift;
 int tileColums;
 int tileRows;
 
 /**
  * @brief Configure render and process screen rows
  * @param full_out Buffer to render to
- * @param x Center of view in dPiece coordinate
- * @param y Center of view in dPiece coordinate
+ * @param position Center of view in dPiece coordinate
  */
-void DrawGame(const Surface &fullOut, int x, int y)
+void DrawGame(const Surface &fullOut, Point position)
 {
 	// Limit rendering to the view area
 	const Surface &out = zoomflag
@@ -1090,36 +1091,35 @@ void DrawGame(const Surface &fullOut, int x, int y)
 	Displacement offset = ScrollInfo.offset;
 	if (myPlayer.IsWalking())
 		offset = GetOffsetForWalking(myPlayer.AnimInfo, myPlayer._pdir, true);
-	int sx = offset.deltaX + tileOffsetX;
-	int sy = offset.deltaY + tileOffsetY;
+	int sx = offset.deltaX + tileOffset.deltaX;
+	int sy = offset.deltaY + tileOffset.deltaY;
 
 	int columns = tileColums;
 	int rows = tileRows;
 
-	x += tileShiftX;
-	y += tileShiftY;
+	position += tileShift;
 
 	// Skip rendering parts covered by the panels
 	if (CanPanelsCoverView()) {
 		if (zoomflag) {
 			if (chrflag || QuestLogIsOpen) {
-				ShiftGrid(&x, &y, 2, 0);
+				position += Displacement(Direction::East) * 2;
 				columns -= 4;
 				sx += SPANEL_WIDTH - TILE_WIDTH / 2;
 			}
 			if (invflag || sbookflag) {
-				ShiftGrid(&x, &y, 2, 0);
+				position += Displacement(Direction::East) * 2;
 				columns -= 4;
 				sx += -TILE_WIDTH / 2;
 			}
 		} else {
 			if (chrflag || QuestLogIsOpen) {
-				ShiftGrid(&x, &y, 1, 0);
+				position += Direction::East;
 				columns -= 2;
 				sx += -TILE_WIDTH / 2 / 2; // SPANEL_WIDTH accounted for in Zoom()
 			}
 			if (invflag || sbookflag) {
-				ShiftGrid(&x, &y, 1, 0);
+				position += Direction::East;
 				columns -= 2;
 				sx += -TILE_WIDTH / 2 / 2;
 			}
@@ -1130,51 +1130,51 @@ void DrawGame(const Surface &fullOut, int x, int y)
 
 	// Draw areas moving in and out of the screen
 	switch (ScrollInfo._sdir) {
-	case SDIR_N:
+	case ScrollDirection::North:
 		sy -= TILE_HEIGHT;
-		ShiftGrid(&x, &y, 0, -1);
+		position += Direction::North;
 		rows += 2;
 		break;
-	case SDIR_NE:
+	case ScrollDirection::NorthEast:
 		sy -= TILE_HEIGHT;
-		ShiftGrid(&x, &y, 0, -1);
+		position += Direction::North;
 		columns++;
 		rows += 2;
 		break;
-	case SDIR_E:
+	case ScrollDirection::East:
 		columns++;
 		break;
-	case SDIR_SE:
+	case ScrollDirection::SouthEast:
 		columns++;
 		rows++;
 		break;
-	case SDIR_S:
+	case ScrollDirection::South:
 		rows += 2;
 		break;
-	case SDIR_SW:
+	case ScrollDirection::SouthWest:
 		sx -= TILE_WIDTH;
-		ShiftGrid(&x, &y, -1, 0);
+		position += Direction::West;
 		columns++;
 		rows++;
 		break;
-	case SDIR_W:
+	case ScrollDirection::West:
 		sx -= TILE_WIDTH;
-		ShiftGrid(&x, &y, -1, 0);
+		position += Direction::West;
 		columns++;
 		break;
-	case SDIR_NW:
+	case ScrollDirection::NorthWest:
 		sx -= TILE_WIDTH / 2;
 		sy -= TILE_HEIGHT / 2;
-		x--;
+		position += Direction::NorthWest;
 		columns++;
 		rows++;
 		break;
-	case SDIR_NONE:
+	case ScrollDirection::None:
 		break;
 	}
 
-	DrawFloor(out, x, y, sx, sy, rows, columns);
-	DrawTileContent(out, x, y, sx, sy, rows, columns);
+	DrawFloor(out, position, { sx, sy }, rows, columns);
+	DrawTileContent(out, position, { sx, sy }, rows, columns);
 
 	if (!zoomflag) {
 		Zoom(fullOut.subregionY(0, gnViewportHeight));
@@ -1184,15 +1184,80 @@ void DrawGame(const Surface &fullOut, int x, int y)
 /**
  * @brief Start rendering of screen, town variation
  * @param out Buffer to render to
- * @param StartX Center of view in dPiece coordinate
- * @param StartY Center of view in dPiece coordinate
+ * @param startPosition Center of view in dPiece coordinates
  */
-void DrawView(const Surface &out, int startX, int startY)
+void DrawView(const Surface &out, Point startPosition)
 {
-	DrawGame(out, startX, startY);
+#ifdef _DEBUG
+	DebugCoordsMap.clear();
+#endif
+	DrawGame(out, startPosition);
 	if (AutomapActive) {
 		DrawAutomap(out.subregionY(0, gnViewportHeight));
 	}
+#ifdef _DEBUG
+	bool debugGridTextNeeded = IsDebugGridTextNeeded();
+	if (debugGridTextNeeded || DebugGrid) {
+		// force redrawing or debug stuff stays on panel on 640x480 resolution
+		force_redraw = 255;
+		char debugGridTextBuffer[10];
+		bool megaTiles = IsDebugGridInMegatiles();
+
+		for (auto m : DebugCoordsMap) {
+			Point dunCoords = { m.first % MAXDUNX, m.first / MAXDUNX };
+			if (megaTiles && (dunCoords.x % 2 == 1 || dunCoords.y % 2 == 1))
+				continue;
+			Point pixelCoords = m.second;
+			if (megaTiles)
+				pixelCoords += Displacement { 0, TILE_HEIGHT / 2 };
+			if (!zoomflag)
+				pixelCoords *= 2;
+			if (debugGridTextNeeded && GetDebugGridText(dunCoords, debugGridTextBuffer)) {
+				Size tileSize = { TILE_WIDTH, TILE_HEIGHT };
+				if (!zoomflag)
+					tileSize *= 2;
+				DrawString(out, debugGridTextBuffer, { pixelCoords - Displacement { 0, tileSize.height }, tileSize }, UiFlags::ColorRed | UiFlags::AlignCenter | UiFlags::VerticalCenter);
+			}
+			if (DebugGrid) {
+				auto DrawDebugSquare = [&out](Point center, Displacement hor, Displacement ver, uint8_t col) {
+					auto DrawLine = [&out](Point from, Point to, uint8_t col) {
+						int dx = to.x - from.x;
+						int dy = to.y - from.y;
+						int steps = abs(dx) > abs(dy) ? abs(dx) : abs(dy);
+						float ix = dx / (float)steps;
+						float iy = dy / (float)steps;
+						float sx = from.x;
+						float sy = from.y;
+
+						for (int i = 0; i <= steps; i++, sx += ix, sy += iy)
+							out.SetPixel({ (int)sx, (int)sy }, col);
+					};
+					DrawLine(center - hor, center + ver, col);
+					DrawLine(center + hor, center + ver, col);
+					DrawLine(center - hor, center - ver, col);
+					DrawLine(center + hor, center - ver, col);
+				};
+
+				Displacement hor = { TILE_WIDTH / 2, 0 };
+				Displacement ver = { 0, TILE_HEIGHT / 2 };
+				if (!zoomflag) {
+					hor *= 2;
+					ver *= 2;
+				}
+				Point center = pixelCoords + hor - ver;
+
+				if (megaTiles) {
+					hor *= 2;
+					ver *= 2;
+				}
+
+				uint8_t col = PAL16_BEIGE;
+
+				DrawDebugSquare(center, hor, ver, col);
+			}
+		}
+	}
+#endif
 	DrawMonsterHealthBar(out);
 	DrawItemNameLabels(out);
 
@@ -1211,10 +1276,12 @@ void DrawView(const Surface &out, int startX, int startY)
 	} else if (QuestLogIsOpen) {
 		DrawQuestLog(out);
 	}
+#ifndef VIRTUAL_GAMEPAD
 	if (!chrflag && Players[MyPlayerId]._pStatPts != 0 && !spselflag
 	    && (!QuestLogIsOpen || !LeftPanel.Contains(MainPanel.position + Displacement { 0, -74 }))) {
 		DrawLevelUpIcon(out);
 	}
+#endif
 	if (ShowUniqueItemInfoBox) {
 		DrawUniqueInfo(out);
 	}
@@ -1230,7 +1297,7 @@ void DrawView(const Surface &out, int startX, int startY)
 	if (HelpFlag) {
 		DrawHelp(out);
 	}
-	if (msgflag != EMSG_NONE) {
+	if (IsDiabloMsgAvailable()) {
 		DrawDiabloMsg(out);
 	}
 	if (MyPlayerIsDead) {
@@ -1269,7 +1336,7 @@ void DrawFPS(const Surface &out)
 		frameend = 0;
 	}
 	snprintf(string, 12, "%i FPS", framerate);
-	DrawString(out, string, Point { 8, 65 }, UiFlags::ColorRed);
+	DrawString(out, string, Point { 8, 53 }, UiFlags::ColorRed);
 }
 
 /**
@@ -1349,48 +1416,36 @@ void DrawMain(int dwHgt, bool drawDesc, bool drawHp, bool drawMana, bool drawSba
 Displacement GetOffsetForWalking(const AnimationInfo &animationInfo, const Direction dir, bool cameraMode /*= false*/)
 {
 	// clang-format off
-	//                                           DIR_S,        DIR_SW,       DIR_W,	       DIR_NW,        DIR_N,        DIR_NE,        DIR_E,        DIR_SE,
-	constexpr Displacement StartOffset[8]    = { {   0, -32 }, {  32, -16 }, {  32, -16 }, {   0,   0 }, {   0,   0 }, {  0,    0 },  { -32, -16 }, { -32, -16 } };
+	//                                           South,        SouthWest,    West,         NorthWest,    North,        NorthEast,     East,         SouthEast,
+	constexpr Displacement StartOffset[8]    = { {   0, -32 }, {  32, -16 }, {  64,   0 }, {   0,   0 }, {   0,   0 }, {  0,    0 },  { -64,   0 }, { -32, -16 } };
 	constexpr Displacement MovingOffset[8]   = { {   0,  32 }, { -32,  16 }, { -64,   0 }, { -32, -16 }, {   0, -32 }, {  32, -16 },  {  64,   0 }, {  32,  16 } };
 	// clang-format on
 
 	float fAnimationProgress = animationInfo.GetAnimationProgress();
-	Displacement offset = MovingOffset[dir];
+	Displacement offset = MovingOffset[static_cast<size_t>(dir)];
 	offset *= fAnimationProgress;
 
 	if (cameraMode) {
 		offset = -offset;
 	} else {
-		offset += StartOffset[dir];
+		offset += StartOffset[static_cast<size_t>(dir)];
 	}
 
 	return offset;
 }
 
-/**
- * @brief Clear cursor state
- */
 void ClearCursor() // CODE_FIX: this was supposed to be in cursor.cpp
 {
 	sgdwCursWdt = 0;
 	sgdwCursWdtOld = 0;
 }
 
-/**
- * @brief Shifting the view area along the logical grid
- *        Note: this won't allow you to shift between even and odd rows
- * @param horizontal Shift the screen left or right
- * @param vertical Shift the screen up or down
- */
 void ShiftGrid(int *x, int *y, int horizontal, int vertical)
 {
 	*x += vertical + horizontal;
 	*y += vertical - horizontal;
 }
 
-/**
- * @brief Gets the number of rows covered by the main panel
- */
 int RowsCoveredByPanel()
 {
 	if (gnScreenWidth <= PANEL_WIDTH) {
@@ -1405,11 +1460,6 @@ int RowsCoveredByPanel()
 	return rows;
 }
 
-/**
- * @brief Calculate the offset needed for centering tiles in view area
- * @param offsetX Offset in pixels
- * @param offsetY Offset in pixels
- */
 void CalcTileOffset(int *offsetX, int *offsetY)
 {
 	int x;
@@ -1432,11 +1482,6 @@ void CalcTileOffset(int *offsetX, int *offsetY)
 	*offsetY = y;
 }
 
-/**
- * @brief Calculate the needed diamond tile to cover the view area
- * @param columns Tiles needed per row
- * @param rows Both even and odd rows
- */
 void TilesInView(int *rcolumns, int *rrows)
 {
 	int columns = gnScreenWidth / TILE_WIDTH;
@@ -1466,42 +1511,41 @@ void TilesInView(int *rcolumns, int *rrows)
 
 void CalcViewportGeometry()
 {
-	tileShiftX = 0;
-	tileShiftY = 0;
+	tileShift = { 0, 0 };
 
 	// Adjust by player offset and tile grid alignment
 	int xo = 0;
 	int yo = 0;
 	CalcTileOffset(&xo, &yo);
-	tileOffsetX = 0 - xo;
-	tileOffsetY = 0 - yo - 1 + TILE_HEIGHT / 2;
+	tileOffset = { -xo, -yo - 1 + TILE_HEIGHT / 2 };
 
 	TilesInView(&tileColums, &tileRows);
 	int lrow = tileRows - RowsCoveredByPanel();
 
 	// Center player tile on screen
-	ShiftGrid(&tileShiftX, &tileShiftY, -tileColums / 2, -lrow / 2);
+	tileShift += Displacement(Direction::West) * (tileColums / 2);
+	tileShift += Displacement(Direction::North) * (lrow / 2);
 
 	tileRows *= 2;
 
 	// Align grid
 	if ((tileColums & 1) == 0) {
-		tileShiftY--; // Shift player row to one that can be centered with out pixel offset
+		tileShift.deltaY--; // Shift player row to one that can be centered with out pixel offset
 		if ((lrow & 1) == 0) {
 			// Offset tile to vertically align the player when both rows and colums are even
 			tileRows++;
-			tileOffsetY -= TILE_HEIGHT / 2;
+			tileOffset.deltaY -= TILE_HEIGHT / 2;
 		}
 	} else if ((tileColums & 1) != 0 && (lrow & 1) != 0) {
 		// Offset tile to vertically align the player when both rows and colums are odd
-		ShiftGrid(&tileShiftX, &tileShiftY, 0, -1);
+		tileShift += Displacement(Direction::North);
 		tileRows++;
-		tileOffsetY -= TILE_HEIGHT / 2;
+		tileOffset.deltaY -= TILE_HEIGHT / 2;
 	}
 
 	// Slightly lower the zoomed view
 	if (!zoomflag) {
-		tileOffsetY += TILE_HEIGHT / 4;
+		tileOffset.deltaY += TILE_HEIGHT / 4;
 		if (yo < TILE_HEIGHT / 4)
 			tileRows++;
 	}
@@ -1509,25 +1553,19 @@ void CalcViewportGeometry()
 	tileRows++; // Cover lower edge saw tooth, right edge accounted for in scrollrt_draw()
 }
 
-extern SDL_Surface *pal_surface;
+extern SDL_Surface *PalSurface;
 
-/**
- * @brief Render the whole screen black
- */
 void ClearScreenBuffer()
 {
 	lock_buf(3);
 
-	assert(pal_surface != nullptr);
-	SDL_FillRect(pal_surface, nullptr, 0);
+	assert(PalSurface != nullptr);
+	SDL_FillRect(PalSurface, nullptr, 0);
 
 	unlock_buf(3);
 }
 
 #ifdef _DEBUG
-/**
- * @brief Scroll the screen when mouse is close to the edge
- */
 void ScrollView()
 {
 	bool scroll;
@@ -1538,87 +1576,81 @@ void ScrollView()
 	scroll = false;
 
 	if (MousePosition.x < 20) {
-		if (dmaxy - 1 <= ViewY || dminx >= ViewX) {
-			if (dmaxy - 1 > ViewY) {
-				ViewY++;
+		if (dmaxPosition.y - 1 <= ViewPosition.y || dminPosition.x >= ViewPosition.x) {
+			if (dmaxPosition.y - 1 > ViewPosition.y) {
+				ViewPosition.y++;
 				scroll = true;
 			}
-			if (dminx < ViewX) {
-				ViewX--;
+			if (dminPosition.x < ViewPosition.x) {
+				ViewPosition.x--;
 				scroll = true;
 			}
 		} else {
-			ViewY++;
-			ViewX--;
+			ViewPosition.y++;
+			ViewPosition.x--;
 			scroll = true;
 		}
 	}
 	if (MousePosition.x > gnScreenWidth - 20) {
-		if (dmaxx - 1 <= ViewX || dminy >= ViewY) {
-			if (dmaxx - 1 > ViewX) {
-				ViewX++;
+		if (dmaxPosition.x - 1 <= ViewPosition.x || dminPosition.y >= ViewPosition.y) {
+			if (dmaxPosition.x - 1 > ViewPosition.x) {
+				ViewPosition.x++;
 				scroll = true;
 			}
-			if (dminy < ViewY) {
-				ViewY--;
+			if (dminPosition.y < ViewPosition.y) {
+				ViewPosition.y--;
 				scroll = true;
 			}
 		} else {
-			ViewY--;
-			ViewX++;
+			ViewPosition.y--;
+			ViewPosition.x++;
 			scroll = true;
 		}
 	}
 	if (MousePosition.y < 20) {
-		if (dminy >= ViewY || dminx >= ViewX) {
-			if (dminy < ViewY) {
-				ViewY--;
+		if (dminPosition.y >= ViewPosition.y || dminPosition.x >= ViewPosition.x) {
+			if (dminPosition.y < ViewPosition.y) {
+				ViewPosition.y--;
 				scroll = true;
 			}
-			if (dminx < ViewX) {
-				ViewX--;
+			if (dminPosition.x < ViewPosition.x) {
+				ViewPosition.x--;
 				scroll = true;
 			}
 		} else {
-			ViewX--;
-			ViewY--;
+			ViewPosition.x--;
+			ViewPosition.y--;
 			scroll = true;
 		}
 	}
 	if (MousePosition.y > gnScreenHeight - 20) {
-		if (dmaxy - 1 <= ViewY || dmaxx - 1 <= ViewX) {
-			if (dmaxy - 1 > ViewY) {
-				ViewY++;
+		if (dmaxPosition.y - 1 <= ViewPosition.y || dmaxPosition.x - 1 <= ViewPosition.x) {
+			if (dmaxPosition.y - 1 > ViewPosition.y) {
+				ViewPosition.y++;
 				scroll = true;
 			}
-			if (dmaxx - 1 > ViewX) {
-				ViewX++;
+			if (dmaxPosition.x - 1 > ViewPosition.x) {
+				ViewPosition.x++;
 				scroll = true;
 			}
 		} else {
-			ViewX++;
-			ViewY++;
+			ViewPosition.x++;
+			ViewPosition.y++;
 			scroll = true;
 		}
 	}
 
 	if (scroll)
-		ScrollInfo._sdir = SDIR_NONE;
+		ScrollInfo._sdir = ScrollDirection::None;
 }
 #endif
 
-/**
- * @brief Initialize the FPS meter
- */
 void EnableFrameCount()
 {
-	frameflag = !frameflag;
+	frameflag = true;
 	framestart = SDL_GetTicks();
 }
 
-/**
- * @brief Redraw screen
- */
 void scrollrt_draw_game_screen()
 {
 	int hgt = 0;
@@ -1647,9 +1679,6 @@ void scrollrt_draw_game_screen()
 	}
 }
 
-/**
- * @brief Render the game
- */
 void DrawAndBlit()
 {
 	if (!gbRunGame) {
@@ -1682,7 +1711,7 @@ void DrawAndBlit()
 
 	nthread_UpdateProgressToNextGameTick();
 
-	DrawView(out, ViewX, ViewY);
+	DrawView(out, ViewPosition);
 	if (ctrlPan) {
 		DrawCtrlPan(out);
 	}

@@ -18,8 +18,7 @@
 
 #include "init.h"
 #include "options.h"
-#include "storm/storm.h"
-#include "storm/storm_sdl_rw.h"
+#include "engine/game_assets.hpp"
 #include "utils/log.hpp"
 #include "utils/math.h"
 #include "utils/sdl_mutex.h"
@@ -46,19 +45,17 @@ std::optional<Aulib::Stream> music;
 std::unique_ptr<char[]> musicBuffer;
 #endif
 
-void LoadMusic(HANDLE handle)
+void LoadMusic(SDL_RWops *handle)
 {
-#ifndef DISABLE_STREAMING_MUSIC
-	SDL_RWops *musicRw = SFileRw_FromStormHandle(handle);
-#else
-	size_t bytestoread = SFileGetFileSize(handle);
+#ifdef DISABLE_STREAMING_MUSIC
+	size_t bytestoread = SDL_RWsize(handle);
 	musicBuffer.reset(new char[bytestoread]);
-	SFileReadFileThreadSafe(handle, musicBuffer.get(), bytestoread);
-	SFileCloseFileThreadSafe(handle);
+	SDL_RWread(handle, musicBuffer.get(), bytestoread, 1);
+	SDL_RWclose(handle);
 
-	SDL_RWops *musicRw = SDL_RWFromConstMem(musicBuffer.get(), bytestoread);
+	handle = SDL_RWFromConstMem(musicBuffer.get(), bytestoread);
 #endif
-	music.emplace(musicRw, std::make_unique<Aulib::DecoderDrwav>(),
+	music.emplace(handle, std::make_unique<Aulib::DecoderDrwav>(),
 	    std::make_unique<Aulib::ResamplerSpeex>(sgOptions.Audio.nResamplingQuality), /*closeRw=*/true);
 }
 
@@ -166,15 +163,17 @@ std::unique_ptr<TSnd> sound_file_load(const char *path, bool stream)
 		}
 #ifndef STREAM_ALL_AUDIO
 	} else {
-		HANDLE file;
-		if (!SFileOpenFile(path, &file)) {
-			ErrDlg("SFileOpenFile failed", path, __FILE__, __LINE__);
+		SDL_RWops *file = OpenAsset(path);
+		if (file == nullptr) {
+			ErrDlg("OpenAsset failed", path, __FILE__, __LINE__);
 		}
-		size_t dwBytes = SFileGetFileSize(file);
+		size_t dwBytes = SDL_RWsize(file);
 		auto waveFile = MakeArraySharedPtr<std::uint8_t>(dwBytes);
-		SFileReadFileThreadSafe(file, waveFile.get(), dwBytes);
+		if (SDL_RWread(file, waveFile.get(), dwBytes, 1) == 0) {
+			ErrDlg("Failed to read file", fmt::format("{}: {}", path, SDL_GetError()).c_str(), __FILE__, __LINE__);
+		}
 		int error = snd->DSB.SetChunk(waveFile, dwBytes);
-		SFileCloseFileThreadSafe(file);
+		SDL_RWclose(file);
 		if (error != 0) {
 			ErrSdl();
 		}
@@ -184,13 +183,11 @@ std::unique_ptr<TSnd> sound_file_load(const char *path, bool stream)
 	return snd;
 }
 
-#ifndef NOSOUND
 TSnd::~TSnd()
 {
 	DSB.Stop();
 	DSB.Release();
 }
-#endif
 
 void snd_init()
 {
@@ -233,21 +230,23 @@ void music_stop()
 
 void music_start(uint8_t nTrack)
 {
-	bool success;
 	const char *trackPath;
 
 	assert(nTrack < NUM_MUSIC);
 	music_stop();
 	if (gbMusicOn) {
-		if (spawn_mpq != nullptr)
+		if (spawn_mpq)
 			trackPath = SpawnMusicTracks[nTrack];
 		else
 			trackPath = MusicTracks[nTrack];
-		HANDLE handle;
-		success = SFileOpenFile(trackPath, &handle);
-		if (!success) {
-			handle = nullptr;
-		} else {
+
+#ifdef DISABLE_STREAMING_MUSIC
+		const bool threadsafe = false;
+#else
+		const bool threadsafe = true;
+#endif
+		SDL_RWops *handle = OpenAsset(trackPath, threadsafe);
+		if (handle != nullptr) {
 			LoadMusic(handle);
 			if (!music->open()) {
 				LogError(LogCategory::Audio, "Aulib::Stream::open (from music_start): {}", SDL_GetError());

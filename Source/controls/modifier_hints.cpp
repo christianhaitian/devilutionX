@@ -29,7 +29,7 @@ constexpr int LineHeight = 25;
 constexpr int CircleMarginX = 16;
 
 /** Distance between the panel top and the circle top. */
-constexpr int CircleTop = 76;
+constexpr int CircleTop = 101;
 
 struct CircleMenuHint {
 	CircleMenuHint(bool isDpad, const char *top, const char *right, const char *bottom, const char *left)
@@ -95,7 +95,7 @@ bool IsLeftActive(const CircleMenuHint &hint)
 
 UiFlags CircleMenuHintTextColor(bool active)
 {
-	return active ? UiFlags::ColorBlue : UiFlags::ColorGold;
+	return active ? UiFlags::ColorBlue : UiFlags::ColorWhitegold;
 }
 
 /**

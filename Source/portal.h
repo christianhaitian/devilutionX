@@ -12,7 +12,7 @@ namespace devilution {
 
 #define MAXPORTAL 4
 
-struct PortalStruct {
+struct Portal {
 	bool open;
 	Point position;
 	int level;
@@ -20,14 +20,14 @@ struct PortalStruct {
 	bool setlvl;
 };
 
-extern PortalStruct Portals[MAXPORTAL];
+extern Portal Portals[MAXPORTAL];
 
 void InitPortals();
 void SetPortalStats(int i, bool o, int x, int y, int lvl, dungeon_type lvltype);
-void AddWarpMissile(int i, int x, int y);
+void AddWarpMissile(int i, Point position);
 void SyncPortals();
 void AddInTownPortal(int i);
-void ActivatePortal(int i, int x, int y, int lvl, dungeon_type lvltype, bool sp);
+void ActivatePortal(int i, Point position, int lvl, dungeon_type lvltype, bool sp);
 void DeactivatePortal(int i);
 bool PortalOnLevel(int i);
 void RemovePortalMissile(int id);

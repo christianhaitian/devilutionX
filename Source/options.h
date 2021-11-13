@@ -8,16 +8,32 @@
 
 namespace devilution {
 
+enum class StartUpGameOption {
+	None,
+	Hellfire,
+	Diablo,
+};
+
 struct DiabloOptions {
 	/** @brief Play game intro video on startup. */
 	bool bIntro;
+	/** @brief Remembers what singleplayer hero/save was last used. */
+	std::uint32_t lastSinglePlayerHero;
+	/** @brief Remembers what multiplayer hero/save was last used. */
+	std::uint32_t lastMultiplayerHero;
 };
 
 struct HellfireOptions {
 	/** @brief Play game intro video on startup. */
 	bool bIntro;
 	/** @brief Cornerstone of the world item. */
-	char szItem[sizeof(PkItemStruct) * 2 + 1];
+	char szItem[sizeof(ItemPack) * 2 + 1];
+	/** @brief Remembers what singleplayer hero/save was last used. */
+	std::uint32_t lastSinglePlayerHero;
+	/** @brief Remembers what multiplayer hero/save was last used. */
+	std::uint32_t lastMultiplayerHero;
+
+	StartUpGameOption startUpGameOption;
 };
 
 struct AudioOptions {
@@ -29,6 +45,8 @@ struct AudioOptions {
 	bool bWalkingSound;
 	/** @brief Automatically equipping items on pickup emits the equipment sound. */
 	bool bAutoEquipSound;
+	/** @brief Picking up items emits the items pickup sound. */
+	bool bItemPickupSound;
 
 	/** @brief Output sample rate (Hz) */
 	std::uint32_t nSampleRate;
@@ -116,6 +134,8 @@ struct GameplayOptions {
 	bool bRandomizeQuests;
 	/** @brief Indicates whether or not monster type (Animal, Demon, Undead) is shown along with other monster information. */
 	bool bShowMonsterType;
+	/** @brief Refill belt form inventory, or rather, use potions/scrolls from inventory first when belt item is consumed.  */
+	bool bAutoRefillBelt;
 	/** @brief Locally disable clicking on shrines which permanently cripple character. */
 	bool bDisableCripplingShrines;
 };
@@ -151,7 +171,7 @@ struct ChatOptions {
 
 struct LanguageOptions {
 	/** @brief Language code (IETF) for text. */
-	char szCode[5];
+	char szCode[6];
 };
 
 struct Options {
@@ -172,7 +192,14 @@ void SetIniValue(const char *sectionName, const char *keyName, const char *value
 extern Options sgOptions;
 extern bool sbWasOptionsLoaded;
 
+/**
+ * @brief Save game configurations to ini file
+ */
 void SaveOptions();
+
+/**
+ * @brief Load game configurations from ini file
+ */
 void LoadOptions();
 
 } // namespace devilution

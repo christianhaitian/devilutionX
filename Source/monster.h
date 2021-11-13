@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <array>
+#include <functional>
 
 #include "engine.h"
 #include "engine/actor_position.hpp"
@@ -16,14 +17,13 @@
 #include "miniwin/miniwin.h"
 #include "utils/stdcompat/optional.hpp"
 #include "monstdat.h"
+#include "sound.h"
 #include "spelldat.h"
 #include "textdat.h"
 
-#ifndef NOSOUND
-#include "sound.h"
-#endif
-
 namespace devilution {
+
+struct Missile;
 
 #define MAXMONSTERS 200
 #define MAX_LVLMTYPES 24
@@ -46,7 +46,7 @@ enum monster_flag : uint16_t {
 	// clang-format on
 };
 
-/** this enum contains indexes from UniqMonst array for special unique monsters (usually quest related) */
+/** this enum contains indexes from UniqueMonstersData array for special unique monsters (usually quest related) */
 enum : uint8_t {
 	UMT_GARBUD,
 	UMT_SKELKING,
@@ -63,28 +63,28 @@ enum : uint8_t {
 	UMT_NAKRUL,
 };
 
-enum MON_MODE : uint8_t {
-	MM_STAND,
+enum class MonsterMode {
+	Stand,
 	/** Movement towards N, NW, or NE */
-	MM_WALK,
+	MoveNorthwards,
 	/** Movement towards S, SW, or SE */
-	MM_WALK2,
+	MoveSouthwards,
 	/** Movement towards W or E */
-	MM_WALK3,
-	MM_ATTACK,
-	MM_GOTHIT,
-	MM_DEATH,
-	MM_SATTACK,
-	MM_FADEIN,
-	MM_FADEOUT,
-	MM_RATTACK,
-	MM_SPSTAND,
-	MM_RSPATTACK,
-	MM_DELAY,
-	MM_CHARGE,
-	MM_STONE,
-	MM_HEAL,
-	MM_TALK,
+	MoveSideways,
+	MeleeAttack,
+	HitRecovery,
+	Death,
+	SpecialMeleeAttack,
+	FadeIn,
+	FadeOut,
+	RangedAttack,
+	SpecialStand,
+	SpecialRangedAttack,
+	Delay,
+	Charge,
+	Petrified,
+	Heal,
+	Talk,
 };
 
 enum class MonsterGraphic {
@@ -117,7 +117,7 @@ enum placeflag : uint8_t {
 
 /**
  * @brief Defines the relation of the monster to a monster pack.
- *        If value is differnt from Individual MonsterStruct.leader must also be set
+ *        If value is differnt from Individual Monster.leader must also be set
  */
 enum class LeaderRelation : uint8_t {
 	None,
@@ -134,6 +134,12 @@ enum class LeaderRelation : uint8_t {
 struct AnimStruct {
 	std::unique_ptr<byte[]> CMem;
 	std::array<std::optional<CelSprite>, 8> CelSpritesForDirections;
+
+	inline const std::optional<CelSprite> &GetCelSpritesForDirection(Direction direction) const
+	{
+		return CelSpritesForDirections[static_cast<size_t>(direction)];
+	}
+
 	int Frames;
 	int Rate;
 };
@@ -150,19 +156,17 @@ struct CMonster {
 	{
 		return Anims[static_cast<int>(graphic)];
 	}
-#ifndef NOSOUND
 	std::unique_ptr<TSnd> Snds[4][2];
-#endif
 	uint16_t mMinHP;
 	uint16_t mMaxHP;
 	uint8_t mAFNum;
 	int8_t mdeadval;
-	const MonsterDataStruct *MData;
+	const MonsterData *MData;
 };
 
-struct MonsterStruct { // note: missing field _mAFNum
+struct Monster { // note: missing field _mAFNum
 	int _mMTidx;
-	MON_MODE _mmode;
+	MonsterMode _mmode;
 	monster_goal _mgoal;
 	int _mgoalvar1;
 	int _mgoalvar2;
@@ -214,7 +218,30 @@ struct MonsterStruct { // note: missing field _mAFNum
 	int8_t mlid; // BUGFIX -1 is used when not emitting light this should be signed (fixed)
 	const char *mName;
 	CMonster *MType;
-	const MonsterDataStruct *MData;
+	const MonsterData *MData;
+
+	/**
+	 * @brief Sets the current cell sprite to match the desired direction and animation sequence
+	 * @param graphic Animation sequence of interest
+	 * @param direction Desired direction the monster should be visually facing
+	*/
+	void ChangeAnimationData(MonsterGraphic graphic, Direction direction)
+	{
+		auto &animationData = this->MType->GetAnimData(graphic);
+		auto &celSprite = animationData.GetCelSpritesForDirection(direction);
+
+		// Passing the Frames and Rate properties here is only relevant when initialising a monster, but doesn't cause any harm when switching animations.
+		this->AnimInfo.ChangeAnimationData(celSprite ? &*celSprite : nullptr, animationData.Frames, animationData.Rate);
+	}
+
+	/**
+	 * @brief Sets the current cell sprite to match the desired animation sequence using the direction the monster is currently facing
+	 * @param graphic Animation sequence of interest
+	*/
+	void ChangeAnimationData(MonsterGraphic graphic)
+	{
+		this->ChangeAnimationData(graphic, this->_mdir);
+	}
 
 	/**
 	 * @brief Check thats the correct stand Animation is loaded. This is needed if direction is changed (monster stands and looks to player).
@@ -223,7 +250,7 @@ struct MonsterStruct { // note: missing field _mAFNum
 	void CheckStandAnimationIsLoaded(Direction mdir);
 
 	/**
-	 * @brief Sets _mmode to MM_STONE
+	 * @brief Sets _mmode to MonsterMode::Petrified
 	 */
 	void Petrify();
 
@@ -235,7 +262,7 @@ struct MonsterStruct { // note: missing field _mAFNum
 
 extern CMonster LevelMonsterTypes[MAX_LVLMTYPES];
 extern int LevelMonsterTypeCount;
-extern MonsterStruct Monsters[MAXMONSTERS];
+extern Monster Monsters[MAXMONSTERS];
 extern int ActiveMonsters[MAXMONSTERS];
 extern int ActiveMonsterCount;
 extern int MonsterKillCounts[MAXMONSTERS];
@@ -248,9 +275,9 @@ void monster_some_crypt();
 void InitMonsters();
 void SetMapMonsters(const uint16_t *dunData, Point startPosition);
 int AddMonster(Point position, Direction dir, int mtype, bool inMap);
-void AddDoppelganger(MonsterStruct &monster);
-bool M_Talker(MonsterStruct &monster);
-void M_StartStand(MonsterStruct &monster, Direction md);
+void AddDoppelganger(Monster &monster);
+bool M_Talker(const Monster &monster);
+void M_StartStand(Monster &monster, Direction md);
 void M_ClearSquares(int i);
 void M_GetKnockback(int i);
 void M_StartHit(int i, int pnum, int dam);
@@ -268,26 +295,26 @@ bool DirOK(int i, Direction mdir);
 bool PosOkMissile(Point position);
 bool LineClearMissile(Point startPoint, Point endPoint);
 bool LineClear(const std::function<bool(Point)> &clear, Point startPoint, Point endPoint);
-void SyncMonsterAnim(MonsterStruct &monster);
+void SyncMonsterAnim(Monster &monster);
 void M_FallenFear(Point position);
 void PrintMonstHistory(int mt);
 void PrintUniqueHistory();
-void PlayEffect(MonsterStruct &monster, int mode);
-void MissToMonst(int i, Point position);
-bool IsTileAvailable(const MonsterStruct &monster, Point position);
+void PlayEffect(Monster &monster, int mode);
+void MissToMonst(Missile &missile, Point position);
+
+/**
+ * @brief Check that the given tile is available to the monster
+ */
+bool IsTileAvailable(const Monster &monster, Point position);
 bool IsSkel(int mt);
 bool IsGoat(int mt);
 bool SpawnSkeleton(int ii, Point position);
 int PreSpawnSkeleton();
-void TalktoMonster(MonsterStruct &monster);
-void SpawnGolum(int i, Point position, int mi);
-bool CanTalkToMonst(const MonsterStruct &monster);
-bool CheckMonsterHit(MonsterStruct &monster, bool *ret);
-int encode_enemy(MonsterStruct &monster);
-void decode_enemy(MonsterStruct &monster, int enemy);
-
-extern Direction left[8];
-extern Direction right[8];
-extern Direction opposite[8];
+void TalktoMonster(Monster &monster);
+void SpawnGolem(int i, Point position, Missile &missile);
+bool CanTalkToMonst(const Monster &monster);
+bool CheckMonsterHit(Monster &monster, bool *ret);
+int encode_enemy(Monster &monster);
+void decode_enemy(Monster &monster, int enemyId);
 
 } // namespace devilution

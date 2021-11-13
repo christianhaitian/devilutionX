@@ -9,6 +9,8 @@
 #include <cstring>
 #include <ctime>
 
+#include "engine/point.hpp"
+
 namespace devilution {
 
 #ifndef MAX_PATH
@@ -35,7 +37,7 @@ struct tagMSG {
 // Everything else
 //
 
-void SetCursorPos(int X, int Y);
+void SetCursorPos(Point position);
 void FocusOnCharInfo();
 
 bool GetAsyncKeyState(int vKey);
@@ -161,6 +163,7 @@ void ClearMessageQueue();
 #define DVL_VK_OEM_6 0xDD      // For the US standard keyboard, the ']}' key
 #define DVL_VK_OEM_7 0xDE      // For the US standard keyboard, the 'single-quote/double-quote' key
 
+#define DVL_MK_CTRL 0x0008
 #define DVL_MK_SHIFT 0x0004
 #define DVL_MK_LBUTTON 0x0001
 #define DVL_MK_RBUTTON 0x0002

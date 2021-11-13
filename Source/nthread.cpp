@@ -8,7 +8,7 @@
 #include "engine/demomode.h"
 #include "gmenu.h"
 #include "nthread.h"
-#include "storm/storm.h"
+#include "storm/storm_net.hpp"
 #include "utils/sdl_mutex.h"
 #include "utils/sdl_thread.h"
 
@@ -211,10 +211,6 @@ void nthread_ignore_mutex(bool bStart)
 	sgbThreadIsRunning = bStart;
 }
 
-/**
- * @brief Checks if it's time for the logic to advance
- * @return True if the engine should tick
- */
 bool nthread_has_500ms_passed()
 {
 	int currentTickCount = SDL_GetTicks();

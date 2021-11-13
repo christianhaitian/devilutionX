@@ -15,6 +15,33 @@ struct Size {
 	{
 		return !(*this == other);
 	}
+
+	constexpr Size &operator*=(const int factor)
+	{
+		width *= factor;
+		height *= factor;
+		return *this;
+	}
+
+	constexpr Size &operator*=(const float factor)
+	{
+		width = static_cast<int>(width * factor);
+		height = static_cast<int>(height * factor);
+		return *this;
+	}
+
+	constexpr Size &operator/=(const int factor)
+	{
+		width /= factor;
+		height /= factor;
+		return *this;
+	}
+
+	constexpr friend Size operator/(Size a, const int factor)
+	{
+		a /= factor;
+		return a;
+	}
 };
 
 } // namespace devilution

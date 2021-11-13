@@ -109,9 +109,11 @@ enum class MissileMovementDistrubution {
 	Unblockable,
 };
 
-typedef struct MissileData {
-	void (*mAddProc)(int, Point, Point, int, int8_t, int, int);
-	void (*mProc)(int);
+struct Missile;
+
+struct MissileData {
+	void (*mAddProc)(Missile &, Point, Direction);
+	void (*mProc)(Missile &);
 	uint8_t mName;
 	bool mDraw;
 	uint8_t mType;
@@ -120,7 +122,7 @@ typedef struct MissileData {
 	_sfx_id mlSFX;
 	_sfx_id miSFX;
 	MissileMovementDistrubution MovementDistribution;
-} MissileDataStruct;
+};
 
 enum class MissileDataFlags {
 	// clang-format off
@@ -153,7 +155,10 @@ struct MissileFileData {
 	}
 };
 
-extern MissileDataStruct MissileData[];
+extern MissileData MissilesData[];
 extern MissileFileData MissileSpriteData[];
+
+void InitMissileGFX(bool loadHellfireGraphics = false);
+void FreeMissileGFX();
 
 } // namespace devilution

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "engine.h"
 
@@ -69,10 +70,10 @@ enum diablo_message : uint8_t {
 	EMSG_SHRINE_MURPHYS,
 };
 
-extern uint32_t msgdelay;
-extern diablo_message msgflag;
-
 void InitDiabloMsg(diablo_message e);
+void InitDiabloMsg(std::string msg);
+bool IsDiabloMsgAvailable();
+void CancelCurrentDiabloMsg();
 void ClrDiabloMsg();
 void DrawDiabloMsg(const Surface &out);
 

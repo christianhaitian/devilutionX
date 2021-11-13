@@ -12,7 +12,7 @@
 namespace devilution {
 
 /** Data related to each missile ID. */
-MissileDataStruct MissileData[] = {
+MissileData MissilesData[] = {
 	// clang-format off
 	// mAddProc,                   mProc,              mName,             mDraw, mType, mResist,        mFileNum,        miSFX,       mlSFX,       MovementDistribution;
 	{  &AddArrow,                  &MI_Arrow,          MIS_ARROW,         true,      0, MISR_NONE,      MFILE_ARROWS,    SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Blockable   },
@@ -28,7 +28,7 @@ MissileDataStruct MissileData[] = {
 	{  &AddTown,                   &MI_Town,           MIS_TOWN,          true,      1, MISR_MAGIC,     MFILE_PORTAL,    LS_SENTINEL, LS_ELEMENTL, MissileMovementDistrubution::Disabled    },
 	{  &AddFlash,                  &MI_Flash,          MIS_FLASH,         true,      1, MISR_MAGIC,     MFILE_BLUEXFR,   LS_NOVA,     LS_ELECIMP1, MissileMovementDistrubution::Disabled    },
 	{  &AddFlash2,                 &MI_Flash2,         MIS_FLASH2,        true,      1, MISR_MAGIC,     MFILE_BLUEXBK,   SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
-	{  &AddManashield,             &MI_Manashield,     MIS_MANASHIELD,    false,     1, MISR_MAGIC,     MFILE_MANASHLD,  LS_MSHIELD,  SFX_NONE,    MissileMovementDistrubution::Disabled    },
+	{  &AddManashield,             nullptr,            MIS_MANASHIELD,    false,     1, MISR_MAGIC,     MFILE_MANASHLD,  LS_MSHIELD,  SFX_NONE,    MissileMovementDistrubution::Disabled    },
 	{  &AddFiremove,               &MI_Firemove,       MIS_FIREMOVE,      true,      1, MISR_FIRE,      MFILE_FIREWAL,   SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Unblockable },
 	{  &AddChain,                  &MI_Chain,          MIS_CHAIN,         true,      1, MISR_LIGHTNING, MFILE_LGHNING,   LS_LNING1,   LS_ELECIMP1, MissileMovementDistrubution::Disabled    },
 	{  nullptr,                    nullptr,            MIS_SENTINAL,      true,      1, MISR_LIGHTNING, MFILE_LGHNING,   SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
@@ -48,7 +48,7 @@ MissileDataStruct MissileData[] = {
 	{  &AddStone,                  &MI_Stone,          MIS_STONE,         false,     1, MISR_MAGIC,     MFILE_NONE,      LS_SCURIMP,  SFX_NONE,    MissileMovementDistrubution::Disabled    },
 	{  nullptr,                    nullptr,            MIS_NULL_1F,       true,      1, MISR_NONE,      MFILE_NONE,      SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
 	{  nullptr,                    nullptr,            MIS_INVISIBL,      false,     1, MISR_NONE,      MFILE_NONE,      LS_INVISIBL, SFX_NONE,    MissileMovementDistrubution::Disabled    },
-	{  &AddGolem,                  &MI_Golem,          MIS_GOLEM,         false,     1, MISR_NONE,      MFILE_NONE,      LS_GOLUM,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
+	{  &AddGolem,                  nullptr,            MIS_GOLEM,         false,     1, MISR_NONE,      MFILE_NONE,      LS_GOLUM,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
 	{  nullptr,                    nullptr,            MIS_ETHEREALIZE,   true,      1, MISR_NONE,      MFILE_ETHRSHLD,  LS_ETHEREAL, SFX_NONE,    MissileMovementDistrubution::Disabled    },
 	{  nullptr,                    nullptr,            MIS_BLODBUR,       true,      2, MISR_NONE,      MFILE_BLODBUR,   SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
 	{  &AddBoom,                   &MI_Boom,           MIS_BOOM,          true,      2, MISR_NONE,      MFILE_NEWEXP,    SFX_NONE,    SFX_NONE,    MissileMovementDistrubution::Disabled    },
@@ -245,6 +245,24 @@ void MissileFileData::LoadGFX()
 			sprintf(pszName, "Missiles\\%s%u.CL2", name, i + 1);
 			animData[i] = LoadFileInMem(pszName);
 		}
+	}
+}
+
+void InitMissileGFX(bool loadHellfireGraphics)
+{
+	for (size_t mi = 0; MissileSpriteData[mi].animFAmt != 0; mi++) {
+		if (!loadHellfireGraphics && mi > MFILE_SCBSEXPD)
+			break;
+		if (MissileSpriteData[mi].flags == MissileDataFlags::MonsterOwned)
+			continue;
+		MissileSpriteData[mi].LoadGFX();
+	}
+}
+
+void FreeMissileGFX()
+{
+	for (auto &missileData : MissileSpriteData) {
+		missileData.FreeGFX();
 	}
 }
 

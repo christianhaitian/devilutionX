@@ -7,16 +7,23 @@ cmake .. -DVERSION_NUM=1.0.0 -DVERSION_SUFFIX=FFFFFFF -DCMAKE_BUILD_TYPE=Release
 
 <details><summary>Linux</summary>
 
-Note that ```pkg-config``` is an optional dependency for finding libsodium,
-although we have a fallback if necessary.
+Note that ```pkg-config``` is an optional dependency for finding libsodium, although we have a fallback if necessary.
 
 ### Installing dependencies on Debian and Ubuntu
 ```
-sudo apt-get install cmake g++ libsdl2-ttf-dev libsodium-dev
+sudo apt-get install cmake g++ libsdl2-dev libsodium-dev libpng-dev libbz2-dev
+```
+### If you want to build the translations (optional)
+```
+sudo apt-get install gettext poedit
+```
+### If you want to build the devilutionX.mpq File (optional)
+```
+sudo apt-get install smpq
 ```
 ### Installing dependencies on Fedora
 ```
-sudo dnf install cmake glibc-devel SDL2-devel SDL2_ttf-devel libsodium-devel libasan libubsan
+sudo dnf install cmake gcc-c++ glibc-devel SDL2-devel libsodium-devel libpng-devel bzip2-devel libasan libubsan
 ```
 ### Compiling
 ```
@@ -41,7 +48,7 @@ cmake --build . -j $(sysctl -n hw.physicalcpu)
 
 ### Installing dependencies
 ```
-pkg install cmake sdl2_ttf libsodium
+pkg install cmake sdl2 libsodium libpng bzip2
 ```
 ### Compiling
 ```
@@ -54,7 +61,7 @@ cmake --build . -j $(sysctl -n hw.ncpu)
 
 ### Installing dependencies
 ```
-pkgin install cmake SDL2_ttf libsodium
+pkgin install cmake SDL2 libsodium libpng bzip2
 ```
 ### Compiling
 ```
@@ -68,7 +75,7 @@ cmake --build . -j $(sysctl -n hw.ncpu)
 
 ### Installing dependencies
 ```
-pkg_add cmake sdl2-ttf libsodium gmake
+pkg_add cmake sdl2 libsodium libpng bzip2 gmake
 ```
 ### Compiling
 ```
@@ -84,7 +91,7 @@ cmake --build . -j $(sysctl -n hw.ncpuonline)
 
 ### 32-bit
 
-Download and place the 32bit MinGW Development Libraries of [SDL2](https://www.libsdl.org/download-2.0.php), [SDL2_ttf](https://www.libsdl.org/projects/SDL_ttf/) and [Libsodium](https://github.com/jedisct1/libsodium/releases) in `/usr/i686-w64-mingw32`. This can be done automatically by running `Packaging/windows/mingw-prep.sh`.
+Download the 32bit MinGW Development Libraries of [SDL2](https://www.libsdl.org/download-2.0.php) and [Libsodium](https://github.com/jedisct1/libsodium/releases) as well as headers for [zlib](https://zlib.net/zlib-1.2.11.tar.gz) and place them in `/usr/i686-w64-mingw32`. This can be done automatically by running `Packaging/windows/mingw-prep.sh`.
 
 ```
 sudo apt-get install cmake gcc-mingw-w64-i686 g++-mingw-w64-i686 pkg-config-mingw-w64-i686
@@ -92,7 +99,7 @@ sudo apt-get install cmake gcc-mingw-w64-i686 g++-mingw-w64-i686 pkg-config-ming
 
 ### 64-bit
 
-Download and place the 64bit MinGW Development Libraries of [SDL2](https://www.libsdl.org/download-2.0.php), [SDL2_ttf](https://www.libsdl.org/projects/SDL_ttf/) and [Libsodium](https://github.com/jedisct1/libsodium/releases) in `/usr/x86_64-w64-mingw32`. This can be done automatically by running `Packaging/windows/mingw-prep64.sh`.
+Download the 64bit MinGW Development Libraries of [SDL2](https://www.libsdl.org/download-2.0.php) and [Libsodium](https://github.com/jedisct1/libsodium/releases) as well as headers for [zlib](https://zlib.net/zlib-1.2.11.tar.gz) and place them in `/usr/x86_64-w64-mingw32`. This can be done automatically by running `Packaging/windows/mingw-prep64.sh`.
 
 ```
 sudo apt-get install cmake gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 pkg-config-mingw-w64-x86-64
@@ -122,35 +129,27 @@ of the `(i686|x86_64)-w64-mingw32` directory.
 <details><summary>Windows via Visual Studio</summary>
 
 ### Installing dependencies
-Make sure to install the `C++ CMake tools for Windows` component for Visual Studio.
+Make sure to install the `C++ CMake tools for Windows` and `Windows SDK` component for Visual Studio.
+*Note: `Windows SDK` component should match your Windows build version.*
 
-* **Using vcpkg (recommended)**
-1. Install vcpkg following the instructions from https://github.com/microsoft/vcpkg#quick-start.
+Install vcpkg following the instructions from https://github.com/microsoft/vcpkg#quick-start-windows.
+Don't forget to perform _user-wide integration_ step for additional convenience.
 
-   Don't forget to perform _user-wide integration_ step for additional convenience.
-2. Install required dependencies by executing the following command (via cmd or powershell):
-
-   For the 64-bit version of the dependencies please run this command:
-
-   ```
-   vcpkg install fmt:x64-windows sdl2:x64-windows sdl2-ttf:x64-windows libsodium:x64-windows gtest:x64-windows
-   ```
-
-   For the 32-bit version of the dependencies please run this command:
-
-   ```
-   vcpkg install fmt:x86-windows sdl2:x86-windows sdl2-ttf:x86-windows libsodium:x86-windows gtest:x86-windows
-   ```
-
-* **Manually**
-1. Download and place the MSVC Development Libraries of [SDL2](https://www.libsdl.org/download-2.0.php), [SDL2_ttf](https://www.libsdl.org/projects/SDL_ttf/) and [Libsodium](https://github.com/jedisct1/libsodium/releases) in `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps\`.
-2. If dependencies are not found or you wish to place them in other location - configure required path variables in _"Manage Configurations..."_ dialog inside Visual Studio or in _cmake-gui_.
+### If you want to build the devilutionX.mpq File (optional)
+In order to build devilutionx.mpq, install smpq from https://launchpad.net/smpq/trunk/1.6/+download/SMPQ-1.6-x86_64.exe.
+The location of this tool will need to be [added to the system's PATH environment variable](https://www.architectryan.com/2018/03/17/add-to-the-path-on-windows-10/).
 
 ### Compiling
 
 * **Through Open->CMake in Visual Studio**
 1. Go to `File -> Open -> CMake`, select `CMakeLists.txt` from the project root.
-2. Select `Build devilution.exe` from the `Build` menu.
+2. Select the `x64-Release` configuration (or `x86` for 32 bit builds, `-Debug` for debug builds).
+3. Select `Build devilution.exe` from the `Build` menu.
+
+* **Through GCC/WSL in Visual Studio**
+1. Ensure the WSL environment has the build pre-requisites for both devilutionX (see "Installing Dependencies on Debian and Ubuntu" under the "Linux" section above) and [WSL remote development](https://docs.microsoft.com/en-us/cpp/linux/connect-to-your-remote-linux-computer?view=msvc-160#connect-to-wsl).
+2. Select the `WSL-GCC-x64-Debug` configuration.
+3. Select `Build devilution` from the `Build` menu.
 
 * **Through cmake-gui**
 
@@ -208,8 +207,8 @@ https://devkitpro.org/wiki/Getting_Started
 ```
 sudo (dkp-)pacman -S \
 		devkitARM general-tools 3dstools devkitpro-pkgbuild-helpers \
-		libctru citro3d 3ds-sdl 3ds-sdl_ttf 3ds-freetype 3ds-cmake \
-		3ds-pkg-config picasso 3dslink
+		libctru citro3d 3ds-sdl 3ds-libpng \
+		3ds-cmake 3ds-pkg-config picasso 3dslink
 ```
 - Download or compile [bannertool](https://github.com/Steveice10/bannertool/releases) and [makerom](https://github.com/jakcron/Project_CTR/releases)
   - Copy binaries to: `/opt/devkitpro/tools/bin/`
@@ -225,7 +224,7 @@ make -j$(nproc)
 ```
 The output files will be generated in the build folder.
 
-[Nintendo 3DS manual](/docs/manual/platforms/n3ds.md)
+[Nintendo 3DS manual](/docs/manual/platforms/3ds.md)
 </details>
 
 <details><summary>PlayStation Vita</summary>
@@ -236,7 +235,7 @@ cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=${VITASDK}/share/vita.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
 make
 ```
-[PlayStation Vita manual](docs/manual/platforms/vita.md)
+[PlayStation Vita manual](/docs/manual/platforms/vita.md)
 </details>
 
 
@@ -244,11 +243,11 @@ make
 
 ### Installing dependencies on 32 bit Haiku
 ```
-pkgman install cmake_x86 devel:libsdl2_x86 devel:libsdl2_ttf_x86 devel:libsodium_x86
+pkgman install cmake_x86 devel:libsdl2_x86 devel:libsodium_x86 devel:libpng_x86 devel:bzip2_x86
 ```
 ### Installing dependencies on 64 bit Haiku
 ```
-pkgman install cmake devel:libsdl2 devel:libsdl2_ttf devel:libsodium
+pkgman install cmake devel:libsdl2 devel:libsodium devel:libpng devel:bzip2
 ```
 ### Compiling on 32 bit Haiku
 ```
@@ -339,7 +338,7 @@ Outside of the Docker container, from the DevilutionX directory, run:
 
 ~~~ bash
 sudo chown -R "${USER}:" build-amiga
-cp Packaging/amiga/devilutionx.info Packaging/amiga/LiberationSerif-Bold.ttf build-amiga/
+cp Packaging/amiga/devilutionx.info build-amiga/
 ~~~
 
 To actually start DevilutionX, increase the stack size to 50KiB in Amiga.

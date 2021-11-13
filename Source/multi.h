@@ -14,12 +14,6 @@ namespace devilution {
 // must be unsigned to generate unsigned comparisons with pnum
 #define MAX_PLRS 4
 
-enum event_type : uint8_t {
-	EVENT_TYPE_PLAYER_CREATE_GAME,
-	EVENT_TYPE_PLAYER_LEAVE_GAME,
-	EVENT_TYPE_PLAYER_MESSAGE,
-};
-
 struct GameData {
 	int32_t size;
 	/** Used to initialise the seed table for dungeon levels so players in multiplayer games generate the same layout */
@@ -45,21 +39,25 @@ extern GameData sgGameInitInfo;
 extern bool gbSelectProvider;
 extern bool gbIsMultiplayer;
 extern char szPlayerName[128];
+extern bool PublicGame;
 extern BYTE gbDeltaSender;
 extern uint32_t player_state[MAX_PLRS];
 
-void multi_msg_add(byte *pbMsg, BYTE bLen);
-void NetSendLoPri(int playerId, byte *pbMsg, BYTE bLen);
-void NetSendHiPri(int playerId, byte *pbMsg, BYTE bLen);
-void multi_send_msg_packet(uint32_t pmask, byte *src, BYTE len);
+void NetSendLoPri(int playerId, const byte *data, size_t size);
+void NetSendHiPri(int playerId, const byte *data, size_t size);
+void multi_send_msg_packet(uint32_t pmask, const byte *data, size_t size);
 void multi_msg_countdown();
 void multi_player_left(int pnum, int reason);
 void multi_net_ping();
+
+/**
+ * @return Always true for singleplayer
+ */
 bool multi_handle_delta();
 void multi_process_network_packets();
-void multi_send_zero_packet(int pnum, _cmd_id bCmd, byte *pbSrc, DWORD dwLen);
+void multi_send_zero_packet(int pnum, _cmd_id bCmd, const byte *data, size_t size);
 void NetClose();
 bool NetInit(bool bSinglePlayer);
-void recv_plrinfo(int pnum, TCmdPlrInfoHdr *p, bool recv);
+void recv_plrinfo(int pnum, const TCmdPlrInfoHdr &header, bool recv);
 
 } // namespace devilution

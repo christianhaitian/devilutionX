@@ -16,8 +16,8 @@ namespace net {
 template <class P>
 class base_protocol : public base {
 public:
-	virtual int create(std::string addrstr, std::string passwd);
-	virtual int join(std::string addrstr, std::string passwd);
+	virtual int create(std::string addrstr);
+	virtual int join(std::string addrstr);
 	virtual void poll();
 	virtual void send(packet &pkt);
 	virtual void DisconnectNet(plr_t plr);
@@ -26,6 +26,7 @@ public:
 
 	virtual std::string make_default_gamename();
 	virtual void send_info_request();
+	virtual void clear_gamelist();
 	virtual std::vector<std::string> get_gamelist();
 
 	virtual ~base_protocol() = default;
@@ -98,16 +99,16 @@ bool base_protocol<P>::wait_firstpeer()
 template <class P>
 void base_protocol<P>::send_info_request()
 {
-	auto pkt = pktfty->make_packet<PT_INFO_REQUEST>(PLR_BROADCAST,
-	    PLR_MASTER);
-	proto.send_oob_mc(pkt->Data());
+	if (wait_network()) {
+		auto pkt = pktfty->make_packet<PT_INFO_REQUEST>(PLR_BROADCAST, PLR_MASTER);
+		proto.send_oob_mc(pkt->Data());
+	}
 }
 
 template <class P>
 void base_protocol<P>::wait_join()
 {
-	randombytes_buf(reinterpret_cast<unsigned char *>(&cookie_self),
-	    sizeof(cookie_t));
+	cookie_self = packet_out::GenerateCookie();
 	auto pkt = pktfty->make_packet<PT_JOIN_REQUEST>(PLR_BROADCAST,
 	    PLR_MASTER, cookie_self, game_init_info);
 	proto.send(firstpeer, pkt->Data());
@@ -120,29 +121,26 @@ void base_protocol<P>::wait_join()
 }
 
 template <class P>
-int base_protocol<P>::create(std::string addrstr, std::string passwd)
+int base_protocol<P>::create(std::string addrstr)
 {
-	setup_password(passwd);
 	gamename = addrstr;
 
 	if (wait_network()) {
 		plr_self = 0;
 		connected_table[plr_self] = true;
 	}
-
-	return (plr_self == PLR_BROADCAST ? MAX_PLRS : plr_self);
+	return (plr_self == PLR_BROADCAST ? -1 : plr_self);
 }
 
 template <class P>
-int base_protocol<P>::join(std::string addrstr, std::string passwd)
+int base_protocol<P>::join(std::string addrstr)
 {
-	//addrstr = "fd80:56c2:e21c:0:199:931d:b14:c4d2";
-	setup_password(passwd);
 	gamename = addrstr;
 	if (wait_network())
 		if (wait_firstpeer())
 			wait_join();
-	return (plr_self == PLR_BROADCAST ? MAX_PLRS : plr_self);
+
+	return (plr_self == PLR_BROADCAST ? -1 : plr_self);
 }
 
 template <class P>
@@ -264,13 +262,20 @@ void base_protocol<P>::recv_ingame(packet &pkt, endpoint sender)
 		return;
 	} else if (pkt.Source() >= MAX_PLRS) {
 		// normal packets
-		ABORT();
+		LogDebug("Invalid packet: packet source ({}) >= MAX_PLRS", pkt.Source());
+		return;
 	}
 	connected_table[pkt.Source()] = true;
 	peers[pkt.Source()] = sender;
 	if (pkt.Destination() != plr_self && pkt.Destination() != PLR_BROADCAST)
 		return; //packet not for us, drop
 	RecvLocal(pkt);
+}
+
+template <class P>
+void base_protocol<P>::clear_gamelist()
+{
+	game_list.clear();
 }
 
 template <class P>

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <SDL.h>
-#include <unistd.h>
 #include <cerrno>
 #include <cstdio>
 #include <sys/stat.h>
@@ -11,6 +10,10 @@
 
 #include "utils/attributes.h"
 #include "utils/console.h"
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #define WINDOW_ICON_NAME 0
 
@@ -308,6 +311,8 @@ int SDL_BlitScaled(SDL_Surface *src, SDL_Rect *srcrect,
     SDL_Surface *dst, SDL_Rect *dstrect);
 
 //== Filesystem
+
+Sint64 SDL_RWsize(SDL_RWops *context);
 
 char *SDL_GetBasePath();
 char *SDL_GetPrefPath(const char *org, const char *app);

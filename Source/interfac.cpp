@@ -102,6 +102,7 @@ void InitCutscene(interface_mode uMsg)
 
 	switch (PickCutscene(uMsg)) {
 	case CutStart:
+		LoadArt("Gendata\\cutstartw.pcx", &ArtCutsceneWidescreen);
 		celPath = "Gendata\\Cutstart.cel";
 		palPath = "Gendata\\Cutstart.pal";
 		progress_id = 1;
@@ -171,7 +172,7 @@ void DrawCutscene()
 {
 	lock_buf(1);
 	const Surface &out = GlobalBackBuffer();
-	DrawArt(out, PANEL_X - (ArtCutsceneWidescreen.w() - PANEL_WIDTH) / 2, UI_OFFSET_Y, &ArtCutsceneWidescreen);
+	DrawArt(out, { PANEL_X - (ArtCutsceneWidescreen.w() - PANEL_WIDTH) / 2, UI_OFFSET_Y }, &ArtCutsceneWidescreen);
 	CelDrawTo(out, { PANEL_X, 480 - 1 + UI_OFFSET_Y }, *sgpBackCel, 1);
 
 	constexpr int ProgressHeight = 22;
@@ -267,6 +268,7 @@ void ShowProgress(interface_mode uMsg)
 		}
 		IncProgress();
 		FreeGameMem();
+		setlevel = false;
 		currlevel = myPlayer.plrlevel;
 		leveltype = gnLevelTypeTbl[currlevel];
 		IncProgress();
@@ -343,6 +345,7 @@ void ShowProgress(interface_mode uMsg)
 		}
 		IncProgress();
 		FreeGameMem();
+		setlevel = false;
 		currlevel = myPlayer.plrlevel;
 		leveltype = gnLevelTypeTbl[currlevel];
 		IncProgress();

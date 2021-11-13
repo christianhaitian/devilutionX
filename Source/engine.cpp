@@ -12,6 +12,8 @@
  */
 
 #include <array>
+#include <cassert>
+#include <cstdint>
 
 #include "engine/render/common_impl.h"
 #include "lighting.h"
@@ -21,17 +23,69 @@
 namespace devilution {
 namespace {
 
-void DrawHalfTransparentBlendedRectTo(const Surface &out, int sx, int sy, int width, int height)
+// Expects everything to be 4-byte aligned.
+void DrawHalfTransparentAligned32BlendedRectTo(const Surface &out, unsigned sx, unsigned sy, unsigned width, unsigned height)
 {
-	BYTE *pix = out.at(sx, sy);
+	assert(out.pitch() % 4 == 0);
 
-	for (int row = 0; row < height; row++) {
-		for (int col = 0; col < width; col++) {
-			*pix = paletteTransparencyLookup[0][*pix];
-			pix++;
+	auto *pix = reinterpret_cast<uint32_t *>(out.at(static_cast<int>(sx), static_cast<int>(sy)));
+	assert(reinterpret_cast<intptr_t>(pix) % 4 == 0);
+
+	const uint16_t *lookupTable = paletteTransparencyLookupBlack16;
+
+	const unsigned skipX = (out.pitch() - width) / 4;
+	width /= 4;
+	while (height-- > 0) {
+		for (unsigned i = 0; i < width; ++i, ++pix) {
+			const uint32_t v = *pix;
+#if SDL_BYTEORDER == SDL_LIL_ENDIAN
+			*pix = lookupTable[v & 0xFFFF] | (lookupTable[(v >> 16) & 0xFFFF] << 16);
+#else
+			*pix = lookupTable[(v >> 16) & 0xFFFF] | (lookupTable[v & 0xFFFF] << 16);
+#endif
 		}
-		pix += out.pitch() - width;
+		pix += skipX;
 	}
+}
+
+void DrawHalfTransparentUnalignedBlendedRectTo(const Surface &out, unsigned sx, unsigned sy, unsigned width, unsigned height)
+{
+	uint8_t *pix = out.at(static_cast<int>(sx), static_cast<int>(sy));
+	const uint8_t *lookupTable = paletteTransparencyLookup[0];
+	const unsigned skipX = out.pitch() - width;
+	for (unsigned y = 0; y < height; ++y) {
+		for (unsigned x = 0; x < width; ++x, ++pix) {
+			*pix = lookupTable[*pix];
+		}
+		pix += skipX;
+	}
+}
+
+void DrawHalfTransparentBlendedRectTo(const Surface &out, unsigned sx, unsigned sy, unsigned width, unsigned height)
+{
+	// All SDL surfaces are 4-byte aligned and divisible by 4.
+	// However, our coordinates and widths may not be.
+
+	// First, draw the leading unaligned part.
+	if (sx % 4 != 0) {
+		const unsigned w = 4 - sx % 4;
+		DrawHalfTransparentUnalignedBlendedRectTo(out, sx, sy, w, height);
+		sx += w;
+		width -= w;
+	}
+
+	if (static_cast<int>(sx + width) == out.w()) {
+		// The pitch is 4-byte aligned, so we can simply extend the width to the pitch.
+		width = out.pitch() - sx;
+	} else if (width % 4 != 0) {
+		// Draw the trailing unaligned part.
+		const unsigned w = width % 4;
+		DrawHalfTransparentUnalignedBlendedRectTo(out, sx + (width / 4) * 4, sy, w, height);
+		width -= w;
+	}
+
+	// Now everything is divisible by 4. Draw the aligned part.
+	DrawHalfTransparentAligned32BlendedRectTo(out, sx, sy, width, height);
 }
 
 void DrawHalfTransparentStippledRectTo(const Surface &out, int sx, int sy, int width, int height)
@@ -148,30 +202,30 @@ Direction GetDirection(Point start, Point destination)
 	if (mx >= 0) {
 		if (my >= 0) {
 			if (5 * mx <= (my * 2)) // mx/my <= 0.4, approximation of tan(22.5)
-				return DIR_SW;
-			md = DIR_S;
+				return Direction::SouthWest;
+			md = Direction::South;
 		} else {
 			my = -my;
 			if (5 * mx <= (my * 2))
-				return DIR_NE;
-			md = DIR_E;
+				return Direction::NorthEast;
+			md = Direction::East;
 		}
 		if (5 * my <= (mx * 2)) // my/mx <= 0.4
-			md = DIR_SE;
+			md = Direction::SouthEast;
 	} else {
 		mx = -mx;
 		if (my >= 0) {
 			if (5 * mx <= (my * 2))
-				return DIR_SW;
-			md = DIR_W;
+				return Direction::SouthWest;
+			md = Direction::West;
 		} else {
 			my = -my;
 			if (5 * mx <= (my * 2))
-				return DIR_NE;
-			md = DIR_N;
+				return Direction::NorthEast;
+			md = Direction::North;
 		}
 		if (5 * my <= (mx * 2))
-			md = DIR_NW;
+			md = Direction::NorthWest;
 	}
 	return md;
 }

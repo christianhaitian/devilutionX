@@ -17,7 +17,11 @@ namespace devilution {
  * @param position The map coordinate to test
  * @return A reference to the object
  */
-ObjectStruct &ObjectAtPosition(Point position);
+Object &ObjectAtPosition(Point position);
+
+/**
+ * @brief Load a quest map, the given map is specified via the global setlvlnum
+ */
 void LoadSetMap();
 
 /* rdata */

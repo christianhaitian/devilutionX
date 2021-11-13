@@ -41,16 +41,15 @@ void LoadText(const char *text)
 {
 	TextLines.clear();
 
-	char tempstr[1536]; // Longest test is about 768 chars * 2 for unicode
+	char tempstr[2560];
 	strcpy(tempstr, text);
 
-	WordWrapGameString(tempstr, 543, GameFontMed, 2);
-	const string_view paragraphs = tempstr;
+	const std::string paragraphs = WordWrapString(tempstr, 543, GameFont30);
 
 	size_t previous = 0;
 	while (true) {
 		size_t next = paragraphs.find('\n', previous);
-		TextLines.emplace_back(paragraphs.substr(previous, next));
+		TextLines.emplace_back(paragraphs.substr(previous, next - previous));
 		if (next == std::string::npos)
 			break;
 		previous = next + 1;
@@ -102,7 +101,7 @@ void DrawQTextContent(const Surface &out)
 	int y = CalculateTextPosition();
 
 	const int sx = PANEL_X + 48;
-	const int sy = LineHeight / 2 - (y % LineHeight);
+	const int sy = 0 - (y % LineHeight);
 
 	const unsigned int skipLines = y / LineHeight;
 
@@ -112,48 +111,38 @@ void DrawQTextContent(const Surface &out)
 			continue;
 		}
 
-		const char *line = TextLines[lineNumber].c_str();
-		if (line[0] == '\0') {
+		const std::string &line = TextLines[lineNumber];
+		if (line.empty()) {
 			continue;
 		}
 
-		DrawString(out, line, { { sx, sy + i * LineHeight }, { 543, LineHeight } }, UiFlags::FontMedium, 2);
+		DrawString(out, line, { { sx, sy + i * LineHeight }, { 543, LineHeight } }, UiFlags::FontSize30 | UiFlags::ColorGold);
 	}
 }
 
 } // namespace
 
-/**
- * @brief Free the resouces used by the quest dialog window
- */
 void FreeQuestText()
 {
 	pTextBoxCels = std::nullopt;
 }
 
-/**
- * @brief Load the resouces used by the quest dialog window, and initialize it's state
- */
 void InitQuestText()
 {
 	pTextBoxCels = LoadCel("Data\\TextBox.CEL", 591);
 	qtextflag = false;
 }
 
-/**
- * @brief Start the given naration
- * @param m Index of narration from the Texts table
- */
 void InitQTextMsg(_speech_id m)
 {
-	if (Texts[m].scrlltxt) {
+	if (Speeches[m].scrlltxt) {
 		QuestLogIsOpen = false;
-		LoadText(_(Texts[m].txtstr));
+		LoadText(_(Speeches[m].txtstr));
 		qtextflag = true;
-		qtextSpd = CalculateTextSpeed(Texts[m].sfxnr);
+		qtextSpd = CalculateTextSpeed(Speeches[m].sfxnr);
 		ScrollStart = SDL_GetTicks();
 	}
-	PlaySFX(Texts[m].sfxnr);
+	PlaySFX(Speeches[m].sfxnr);
 }
 
 void DrawQTextBack(const Surface &out)

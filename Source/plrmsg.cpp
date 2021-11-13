@@ -22,7 +22,7 @@ uint8_t plr_msg_slot;
 _plrmsg plr_msgs[PMSG_COUNT];
 
 /** Maps from player_num to text color, as used in chat messages. */
-const UiFlags TextColorFromPlayerId[MAX_PLRS + 1] = { UiFlags::ColorSilver, UiFlags::ColorSilver, UiFlags::ColorSilver, UiFlags::ColorSilver, UiFlags::ColorGold };
+const UiFlags TextColorFromPlayerId[MAX_PLRS + 1] = { UiFlags::ColorWhite, UiFlags::ColorWhite, UiFlags::ColorWhite, UiFlags::ColorWhite, UiFlags::ColorWhitegold };
 
 void PrintChatMessage(const Surface &out, int x, int y, int width, char *text, UiFlags style)
 {
@@ -31,8 +31,7 @@ void PrintChatMessage(const Surface &out, int x, int y, int width, char *text, U
 		if (text[i] == '\n')
 			text[i] = ' ';
 	}
-	WordWrapGameString(text, width);
-	DrawString(out, text, { { x, y }, { width, 0 } }, style, 1, 10);
+	DrawString(out, WordWrapString(text, width), { { x, y }, { width, 0 } }, style, 1, 10);
 }
 
 } // namespace
@@ -86,7 +85,7 @@ void SendPlrMsg(int pnum, const char *pszStr)
 	auto &player = Players[pnum];
 	assert(strlen(player._pName) < PLR_NAME_LEN);
 	assert(strlen(pszStr) < MAX_SEND_STR_LEN);
-	strcpy(pMsg->str, fmt::format(_(/* TRANSLATORS: Shown if player presses "v" button. {:s} is player name, {:d} is level, {:s} is location */ "{:s} (lvl {:d}): {:s}"), player._pName, player._pLevel, pszStr).c_str());
+	strcpy(pMsg->str, fmt::format(_("{:s} (lvl {:d}): {:s}"), player._pName, player._pLevel, pszStr).c_str());
 }
 
 void ClearPlrMsg()
@@ -108,17 +107,17 @@ void InitPlrMsg()
 
 void DrawPlrMsg(const Surface &out)
 {
-	DWORD x = 10;
-	DWORD y = 70;
-	DWORD width = gnScreenWidth - 20;
+	int x = 10;
+	int y = 58;
+	int width = gnScreenWidth - 20;
 	_plrmsg *pMsg;
 
 	if (chrflag || QuestLogIsOpen) {
-		x += SPANEL_WIDTH;
-		width -= SPANEL_WIDTH;
+		x += LeftPanel.position.x + LeftPanel.size.width;
+		width -= LeftPanel.size.width;
 	}
 	if (invflag || sbookflag)
-		width -= SPANEL_WIDTH;
+		width -= gnScreenWidth - RightPanel.position.x;
 
 	if (width < 300)
 		return;

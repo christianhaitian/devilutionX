@@ -4,7 +4,7 @@ cp ./build/devilutionx ./build/package/devilutionx
 cp ./Packaging/resources/devilutionx.mpq ./build/package/devilutionx.mpq
 cp ./build/devilutionx*.deb ./build/package/devilutionx.deb
 cp ./build/devilutionx*.rpm ./build/package/devilutionx.rpm
-cp ./build/CharisSILB.ttf ./build/package/CharisSILB.ttf
 cp ./Packaging/nix/README.txt ./build/package/README.txt
-cp ./Packaging/resources/LICENSE.CharisSILB.txt ./build/package/LICENSE.CharisSILB.txt
+cp ./Packaging/resources/LICENSE.CC-BY.txt ./build/package/LICENSE.CC-BY.txt
+cp ./Packaging/resources/LICENSE.OFL.txt ./build/package/LICENSE.OFL.txt
 cd ./build/package/ && tar -cavf ../../devilutionx.tar.xz * && cd ../../

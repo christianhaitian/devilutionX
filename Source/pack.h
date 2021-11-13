@@ -14,7 +14,7 @@
 namespace devilution {
 
 #pragma pack(push, 1)
-struct PkItemStruct {
+struct ItemPack {
 	uint32_t iSeed;
 	uint16_t iCreateInfo;
 	uint16_t idx;
@@ -27,7 +27,7 @@ struct PkItemStruct {
 	int32_t dwBuff;
 };
 
-struct PkPlayerStruct {
+struct PlayerPack {
 	uint32_t dwLowDateTime;
 	uint32_t dwHighDateTime;
 	int8_t destAction;
@@ -39,7 +39,7 @@ struct PkPlayerStruct {
 	uint8_t targx;
 	uint8_t targy;
 	char pName[PLR_NAME_LEN];
-	int8_t pClass;
+	uint8_t pClass;
 	uint8_t pBaseStr;
 	uint8_t pBaseMag;
 	uint8_t pBaseDex;
@@ -54,11 +54,11 @@ struct PkPlayerStruct {
 	int32_t pMaxManaBase;
 	int8_t pSplLvl[37]; // Should be MAX_SPELLS but set to 37 to make save games compatible
 	uint64_t pMemSpells;
-	PkItemStruct InvBody[NUM_INVLOC];
-	PkItemStruct InvList[NUM_INV_GRID_ELEM];
+	ItemPack InvBody[NUM_INVLOC];
+	ItemPack InvList[NUM_INV_GRID_ELEM];
 	int8_t InvGrid[NUM_INV_GRID_ELEM];
 	uint8_t _pNumInv;
-	PkItemStruct SpdList[MAXBELTITEMS];
+	ItemPack SpdList[MAXBELTITEMS];
 	int8_t pTownWarps;
 	int8_t pDungMsgs;
 	int8_t pLvlLoad;
@@ -74,14 +74,23 @@ struct PkPlayerStruct {
 	int16_t wReserved8;  // For future use
 	uint32_t pDiabloKillLevel;
 	uint32_t pDifficulty;
-	int32_t pDamAcFlags;
+	uint32_t pDamAcFlags;
 	int32_t dwReserved[5]; // For future use
 };
 #pragma pack(pop)
 
-void PackPlayer(PkPlayerStruct *pPack, const PlayerStruct &player, bool manashield);
-void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync);
-void PackItem(PkItemStruct *id, const ItemStruct *is);
-void UnPackItem(const PkItemStruct *is, ItemStruct *id, bool isHellfire);
+void PackPlayer(PlayerPack *pPack, const Player &player, bool manashield);
+bool UnPackPlayer(const PlayerPack *pPack, Player &player, bool netSync);
+void PackItem(ItemPack *id, const Item *is);
+
+/**
+ * Expand an ItemPack into an Item
+ *
+ * Note: last slot of item[MAXITEMS+1] used as temporary buffer
+ * find real name reference below, possibly [sizeof(item[])/sizeof(Item)]
+ * @param is The source packed item
+ * @param id The destination item
+ */
+void UnPackItem(const ItemPack *is, Item *id, bool isHellfire);
 
 } // namespace devilution

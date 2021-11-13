@@ -2,23 +2,23 @@
 
 #include <string>
 
+#include "utils/stdcompat/optional.hpp"
+
 namespace devilution {
 
 namespace paths {
 
+const std::string &AppPath();
 const std::string &BasePath();
 const std::string &PrefPath();
 const std::string &ConfigPath();
-const std::string &LangPath();
-const std::string &TtfPath();
-const std::string &TtfName();
+const std::string &AssetsPath();
+const std::optional<std::string> &MpqDir();
 
 void SetBasePath(const std::string &path);
 void SetPrefPath(const std::string &path);
 void SetConfigPath(const std::string &path);
-void SetLangPath(const std::string &path);
-void SetTtfPath(const std::string &path);
-void SetTtfName(const std::string &name);
+void SetMpqDir(const std::string &path);
 
 } // namespace paths
 

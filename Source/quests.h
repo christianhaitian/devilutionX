@@ -44,7 +44,7 @@ enum quest_state : uint8_t {
 	QUEST_INVALID = 0xFF,
 };
 
-struct QuestStruct {
+struct Quest {
 	quest_id _qidx;
 	quest_state _qactive;
 	uint8_t _qlevel;
@@ -59,7 +59,7 @@ struct QuestStruct {
 	bool IsAvailable();
 };
 
-struct QuestDataStruct {
+struct QuestData {
 	uint8_t _qdlvl;
 	int8_t _qdmultlvl;
 	dungeon_type _qlvlt;
@@ -73,9 +73,8 @@ struct QuestDataStruct {
 
 extern bool QuestLogIsOpen;
 extern std::optional<CelSprite> pQLogCel;
-extern QuestStruct Quests[MAXQUESTS];
-extern int ReturnLvlX;
-extern int ReturnLvlY;
+extern Quest Quests[MAXQUESTS];
+extern Point ReturnLvlPosition;
 extern dungeon_type ReturnLevelType;
 extern int ReturnLevel;
 
@@ -86,10 +85,10 @@ void InitQuests();
  * @param seed The seed used to control which quests are deactivated
  * @param quests The available quest list, this function will make some of them inactive by the time it returns
 */
-void InitialiseQuestPools(uint32_t seed, QuestStruct quests[]);
+void InitialiseQuestPools(uint32_t seed, Quest quests[]);
 void CheckQuests();
 bool ForceQuests();
-void CheckQuestKill(const MonsterStruct &monster, bool sendmsg);
+void CheckQuestKill(const Monster &monster, bool sendmsg);
 void DRLG_CheckQuests(int x, int y);
 void SetReturnLvlPos();
 void GetReturnLvlPos();
@@ -106,6 +105,6 @@ void QuestlogESC();
 void SetMultiQuest(int q, quest_state s, bool log, int v1);
 
 /* rdata */
-extern QuestDataStruct QuestData[];
+extern QuestData QuestsData[];
 
 } // namespace devilution

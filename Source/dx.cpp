@@ -7,9 +7,9 @@
 
 #include <SDL.h>
 
+#include "controls/touch/renderers.h"
 #include "engine.h"
 #include "options.h"
-#include "storm/storm.h"
 #include "utils/display.h"
 #include "utils/log.hpp"
 #include "utils/sdl_mutex.h"
@@ -23,19 +23,24 @@ namespace devilution {
 
 int refreshDelay;
 SDL_Renderer *renderer;
-SDL_Texture *texture;
+#ifndef USE_SDL1
+SDLTextureUniquePtr texture;
+#endif
 
 /** Currently active palette */
-SDL_Palette *Palette;
+SDLPaletteUniquePtr Palette;
 unsigned int pal_surface_palette_version = 0;
 
 /** 24-bit renderer texture surface */
-SDL_Surface *renderer_texture_surface = nullptr;
+SDLSurfaceUniquePtr RendererTextureSurface;
 
 /** 8-bit surface that we render to */
-SDL_Surface *pal_surface;
+SDL_Surface *PalSurface;
+namespace {
+SDLSurfaceUniquePtr PinnedPalSurface;
+} // namespace
 
-/** Whether we render directly to the screen surface, i.e. `pal_surface == GetOutputSurface()` */
+/** Whether we render directly to the screen surface, i.e. `PalSurface == GetOutputSurface()` */
 bool RenderDirectlyToOutputSurface;
 
 namespace {
@@ -66,26 +71,24 @@ void CreateBackBuffer()
 {
 	if (CanRenderDirectlyToOutputSurface()) {
 		Log("{}", "Will render directly to the SDL output surface");
-		pal_surface = GetOutputSurface();
+		PalSurface = GetOutputSurface();
 		RenderDirectlyToOutputSurface = true;
 	} else {
-		pal_surface = SDL_CreateRGBSurfaceWithFormat(
+		PinnedPalSurface = SDLWrap::CreateRGBSurfaceWithFormat(
 		    /*flags=*/0,
 		    /*width=*/gnScreenWidth,
 		    /*height=*/gnScreenHeight,
 		    /*depth=*/8,
 		    SDL_PIXELFORMAT_INDEX8);
-		if (pal_surface == nullptr) {
-			ErrSdl();
-		}
+		PalSurface = PinnedPalSurface.get();
 	}
 
 #ifndef USE_SDL1
-	// In SDL2, `pal_surface` points to the global `palette`.
-	if (SDL_SetSurfacePalette(pal_surface, Palette) < 0)
+	// In SDL2, `PalSurface` points to the global `palette`.
+	if (SDL_SetSurfacePalette(PalSurface, Palette.get()) < 0)
 		ErrSdl();
 #else
-	// In SDL1, `pal_surface` owns its palette and we must update it every
+	// In SDL1, `PalSurface` owns its palette and we must update it every
 	// time the global `palette` is changed. No need to do anything here as
 	// the global `palette` doesn't have any colors set yet.
 #endif
@@ -101,14 +104,11 @@ void CreatePrimarySurface()
 		int height = 0;
 		SDL_RenderGetLogicalSize(renderer, &width, &height);
 		Uint32 format;
-		if (SDL_QueryTexture(texture, &format, nullptr, nullptr, nullptr) < 0)
+		if (SDL_QueryTexture(texture.get(), &format, nullptr, nullptr, nullptr) < 0)
 			ErrSdl();
-		renderer_texture_surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, SDL_BITSPERPIXEL(format), format);
+		RendererTextureSurface = SDLWrap::CreateRGBSurfaceWithFormat(0, width, height, SDL_BITSPERPIXEL(format), format);
 	}
 #endif
-	if (GetOutputSurface() == nullptr) {
-		ErrSdl();
-	}
 }
 
 void LockBufPriv()
@@ -187,7 +187,7 @@ Surface GlobalBackBuffer()
 		return Surface();
 	}
 
-	return Surface(pal_surface, SDL_Rect { 0, 0, gnScreenWidth, gnScreenHeight });
+	return Surface(PalSurface, SDL_Rect { 0, 0, gnScreenWidth, gnScreenHeight });
 }
 
 void dx_cleanup()
@@ -200,15 +200,14 @@ void dx_cleanup()
 	sgdwLockCount = 0;
 	MemCrit.unlock();
 
-	if (pal_surface == nullptr)
-		return;
-	SDL_FreeSurface(pal_surface);
-	pal_surface = nullptr;
-	SDL_FreePalette(Palette);
-	SDL_FreeSurface(renderer_texture_surface);
+	PalSurface = nullptr;
+	PinnedPalSurface = nullptr;
+	Palette = nullptr;
+	RendererTextureSurface = nullptr;
 #ifndef USE_SDL1
-	SDL_DestroyTexture(texture);
-	SDL_DestroyRenderer(renderer);
+	texture = nullptr;
+	if (sgOptions.Graphics.bUpscale)
+		SDL_DestroyRenderer(renderer);
 #endif
 	SDL_DestroyWindow(ghMainWnd);
 }
@@ -238,17 +237,14 @@ void dx_reinit()
 
 void InitPalette()
 {
-	Palette = SDL_AllocPalette(256);
-	if (Palette == nullptr) {
-		ErrSdl();
-	}
+	Palette = SDLWrap::AllocPalette();
 }
 
 void BltFast(SDL_Rect *srcRect, SDL_Rect *dstRect)
 {
 	if (RenderDirectlyToOutputSurface)
 		return;
-	Blit(pal_surface, srcRect, dstRect);
+	Blit(PalSurface, srcRect, dstRect);
 }
 
 void Blit(SDL_Surface *src, SDL_Rect *srcRect, SDL_Rect *dstRect)
@@ -295,12 +291,9 @@ void Blit(SDL_Surface *src, SDL_Rect *srcRect, SDL_Rect *dstRect)
 
 	// A surface with a non-output pixel format but without a color key needs scaling.
 	// We can convert the format and then call BlitScaled.
-	SDL_Surface *converted = SDL_ConvertSurface(src, dst->format, 0);
-	if (SDL_BlitScaled(converted, srcRect, dst, dstRect) < 0) {
-		SDL_FreeSurface(converted);
+	SDLSurfaceUniquePtr converted = SDLWrap::ConvertSurface(src, dst->format, 0);
+	if (SDL_BlitScaled(converted.get(), srcRect, dst, dstRect) < 0)
 		ErrSdl();
-	}
-	SDL_FreeSurface(converted);
 #endif
 }
 
@@ -315,7 +308,7 @@ void RenderPresent()
 
 #ifndef USE_SDL1
 	if (renderer != nullptr) {
-		if (SDL_UpdateTexture(texture, nullptr, surface->pixels, surface->pitch) <= -1) { //pitch is 2560
+		if (SDL_UpdateTexture(texture.get(), nullptr, surface->pixels, surface->pitch) <= -1) { //pitch is 2560
 			ErrSdl();
 		}
 
@@ -327,15 +320,21 @@ void RenderPresent()
 		if (SDL_RenderClear(renderer) <= -1) {
 			ErrSdl();
 		}
-		if (SDL_RenderCopy(renderer, texture, nullptr, nullptr) <= -1) {
+		if (SDL_RenderCopy(renderer, texture.get(), nullptr, nullptr) <= -1) {
 			ErrSdl();
 		}
+#ifdef VIRTUAL_GAMEPAD
+		RenderVirtualGamepad(renderer);
+#endif
 		SDL_RenderPresent(renderer);
 
 		if (!sgOptions.Graphics.bVSync) {
 			LimitFrameRate();
 		}
 	} else {
+#ifdef VIRTUAL_GAMEPAD
+		RenderVirtualGamepad(surface);
+#endif
 		if (SDL_UpdateWindowSurface(ghMainWnd) <= -1) {
 			ErrSdl();
 		}
@@ -346,7 +345,7 @@ void RenderPresent()
 		ErrSdl();
 	}
 	if (RenderDirectlyToOutputSurface)
-		pal_surface = GetOutputSurface();
+		PalSurface = GetOutputSurface();
 	LimitFrameRate();
 #endif
 }

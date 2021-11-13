@@ -6,9 +6,9 @@
 #include <vector>
 
 #include "options.h"
+#include "engine/game_assets.hpp"
 #include "utils/file_util.h"
 #include "utils/paths.h"
-#include "utils/utf8.h"
 
 using namespace devilution;
 #define MO_MAGIC 0x950412de
@@ -23,7 +23,6 @@ struct CStringCmp {
 };
 
 std::vector<std::map<std::string, std::string, std::less<>>> translation = { {}, {} };
-std::map<const char *, const char *, CStringCmp> meta;
 
 struct MoHead {
 	uint32_t magic;
@@ -65,8 +64,6 @@ char *StrTrimRight(char *s)
 	return s;
 }
 
-bool IsUTF8 = true;
-
 // English, Danish, Spanish, Italian, Swedish
 int PluralForms = 2;
 std::function<int(int n)> GetLocalPluralId = [](int n) -> int { return n != 1 ? 1 : 0; };
@@ -95,19 +92,19 @@ void SetPluralForm(char *string)
 	expression = StrTrimRight(expression);
 	expression = StrTrimLeft(expression);
 
-	// Chinese
+	// ko_KR, zh_CN, zh_TW
 	if (strcmp(expression, "0") == 0) {
 		GetLocalPluralId = [](int /*n*/) -> int { return 0; };
 		return;
 	}
 
-	// Portuguese, French
+	// fr, pt_BR
 	if (strcmp(expression, "(n > 1)") == 0) {
 		GetLocalPluralId = [](int n) -> int { return n > 1 ? 1 : 0; };
 		return;
 	}
 
-	// Russian, Croatian
+	// hr, ru
 	if (strcmp(expression, "(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2)") == 0) {
 		GetLocalPluralId = [](int n) -> int {
 			if (n % 10 == 1 && n % 100 != 11)
@@ -119,17 +116,44 @@ void SetPluralForm(char *string)
 		return;
 	}
 
-	// Polish
-	if (strcmp(expression, "(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)") == 0) {
+	// pl
+	if (strcmp(expression, "(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2)") == 0) {
 		GetLocalPluralId = [](int n) -> int {
 			if (n == 1)
 				return 0;
-			if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20))
+			if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14))
 				return 1;
 			return 2;
 		};
 		return;
 	}
+
+	// ro
+	if (strcmp(expression, "(n==1 ? 0 : n==0 || (n!=1 && n%100>=1 && n%100<=19) ? 1 : 2)") == 0) {
+		GetLocalPluralId = [](int n) -> int {
+			if (n == 1)
+				return 0;
+			if (n == 0 || (n != 1 && n % 100 >= 1 && n % 100 <= 19))
+				return 1;
+			return 2;
+		};
+		return;
+	}
+
+	// cs
+	if (strcmp(expression, "(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2") == 0) {
+		GetLocalPluralId = [](int n) -> int {
+			if (n == 1)
+				return 0;
+			if (n >= 2 && n <= 4)
+				return 1;
+			return 2;
+		};
+		return;
+	}
+
+	// bg, da, de, es, it, sv
+	// (n != 1)
 }
 
 /**
@@ -174,11 +198,11 @@ void ParseMetadata(char *ptr)
 		}
 
 		val = StrTrimRight(val);
-		meta[key] = val;
 
-		// Match "Content-Type: text/plain; charset=UTF-8"
 		if ((strcmp("Content-Type", key) == 0) && ((delim = strstr(val, "=")) != nullptr)) {
-			IsUTF8 = (strcasecmp(delim + 1, "utf-8") == 0);
+			if (strcasecmp(delim + 1, "utf-8") != 0) {
+				Log("Translation is now UTF-8 encoded!");
+			}
 			continue;
 		}
 
@@ -201,6 +225,22 @@ bool ReadEntry(SDL_RWops *rw, MoEntry *e, std::vector<char> &result)
 
 } // namespace
 
+const std::string &LanguageParticularTranslate(const char *context, const char *message)
+{
+	constexpr const char *glue = "\004";
+
+	std::string key = context;
+	key += glue;
+	key += message;
+
+	auto it = translation[0].find(key);
+	if (it == translation[0].end()) {
+		it = translation[0].insert({ key, message }).first;
+	}
+
+	return it->second;
+}
+
 const std::string &LanguagePluralTranslate(const char *singular, const char *plural, int count)
 {
 	int n = GetLocalPluralId(count);
@@ -208,28 +248,19 @@ const std::string &LanguagePluralTranslate(const char *singular, const char *plu
 	auto it = translation[n].find(singular);
 	if (it == translation[n].end()) {
 		if (count != 1)
-			it = translation[1].insert({ singular, utf8_to_latin1(plural) }).first;
+			it = translation[1].insert({ singular, plural }).first;
 		else
-			it = translation[0].insert({ singular, utf8_to_latin1(singular) }).first;
+			it = translation[0].insert({ singular, singular }).first;
 	}
 
 	return it->second;
 }
+
 const std::string &LanguageTranslate(const char *key)
 {
 	auto it = translation[0].find(key);
 	if (it == translation[0].end()) {
-		it = translation[0].insert({ key, utf8_to_latin1(key) }).first;
-	}
-
-	return it->second;
-}
-
-const char *LanguageMetadata(const char *key)
-{
-	auto it = meta.find(key);
-	if (it == meta.end()) {
-		return nullptr;
+		it = translation[0].insert({ key, key }).first;
 	}
 
 	return it->second;
@@ -237,66 +268,87 @@ const char *LanguageMetadata(const char *key)
 
 bool HasTranslation(const std::string &locale)
 {
-	std::string moPath = paths::LangPath() + locale + ".mo";
-	if (FileExists(moPath.c_str()))
-		return true;
+	for (const char *ext : { ".mo", ".gmo" }) {
+		SDL_RWops *rw = OpenAsset((locale + ext).c_str());
+		if (rw != nullptr) {
+			SDL_RWclose(rw);
+			return true;
+		}
+	}
 
-	std::string gmoPath = paths::LangPath() + locale + ".gmo";
-	return FileExists(gmoPath.c_str());
+	return false;
 }
 
 void LanguageInitialize()
 {
+	const std::string lang = sgOptions.Language.szCode;
 	SDL_RWops *rw;
 
-	auto path = paths::LangPath() + sgOptions.Language.szCode + ".mo";
-	if ((rw = SDL_RWFromFile(path.c_str(), "rb")) == nullptr) {
-		path = paths::LangPath() + sgOptions.Language.szCode + ".gmo";
-		if ((rw = SDL_RWFromFile(path.c_str(), "rb")) == nullptr) {
-			perror(path.c_str());
-			return;
-		}
+	// Translations normally come in ".gmo" files.
+	// We also support ".mo" because that is what poedit generates
+	// and what translators use to test their work.
+	for (const char *ext : { ".mo", ".gmo" }) {
+		if ((rw = OpenAsset((lang + ext).c_str())) != nullptr)
+			break;
 	}
+	if (rw == nullptr)
+		return;
+
 	// Read header and do sanity checks
 	// FIXME: Endianness.
 	MoHead head;
 	if (SDL_RWread(rw, &head, sizeof(MoHead), 1) != 1) {
+		SDL_RWclose(rw);
 		return;
 	}
 
 	if (head.magic != MO_MAGIC) {
+		SDL_RWclose(rw);
 		return; // not a MO file
 	}
 
 	if (head.revision.major > 1 || head.revision.minor > 1) {
+		SDL_RWclose(rw);
 		return; // unsupported revision
 	}
 
 	// Read entries of source strings
 	std::unique_ptr<MoEntry[]> src { new MoEntry[head.nbMappings] };
-	if (SDL_RWseek(rw, head.srcOffset, RW_SEEK_SET) == -1)
+	if (SDL_RWseek(rw, head.srcOffset, RW_SEEK_SET) == -1) {
+		SDL_RWclose(rw);
 		return;
+	}
 	// FIXME: Endianness.
-	if (SDL_RWread(rw, src.get(), sizeof(MoEntry), head.nbMappings) != head.nbMappings)
+	if (SDL_RWread(rw, src.get(), sizeof(MoEntry), head.nbMappings) != head.nbMappings) {
+		SDL_RWclose(rw);
 		return;
+	}
 
 	// Read entries of target strings
 	std::unique_ptr<MoEntry[]> dst { new MoEntry[head.nbMappings] };
-	if (SDL_RWseek(rw, head.dstOffset, RW_SEEK_SET) == -1)
+	if (SDL_RWseek(rw, head.dstOffset, RW_SEEK_SET) == -1) {
+		SDL_RWclose(rw);
 		return;
+	}
 	// FIXME: Endianness.
-	if (SDL_RWread(rw, dst.get(), sizeof(MoEntry), head.nbMappings) != head.nbMappings)
+	if (SDL_RWread(rw, dst.get(), sizeof(MoEntry), head.nbMappings) != head.nbMappings) {
+		SDL_RWclose(rw);
 		return;
+	}
 
 	std::vector<char> key;
 	std::vector<char> value;
 
 	// MO header
-	if (!ReadEntry(rw, &src[0], key) && ReadEntry(rw, &dst[0], value))
+	if (!ReadEntry(rw, &src[0], key) || !ReadEntry(rw, &dst[0], value)) {
+		SDL_RWclose(rw);
 		return;
+	}
 
-	if (key[0] != '\0')
+	if (key[0] != '\0') {
+		SDL_RWclose(rw);
 		return;
+	}
 
 	ParseMetadata(value.data());
 
@@ -310,7 +362,7 @@ void LanguageInitialize()
 			size_t offset = 0;
 			for (int j = 0; j < PluralForms; j++) {
 				const char *text = value.data() + offset;
-				translation[j].emplace(key.data(), IsUTF8 ? utf8_to_latin1(text) : text);
+				translation[j].emplace(key.data(), text);
 
 				if (dst[i].length <= offset + strlen(value.data()))
 					break;
@@ -319,4 +371,6 @@ void LanguageInitialize()
 			}
 		}
 	}
+
+	SDL_RWclose(rw);
 }

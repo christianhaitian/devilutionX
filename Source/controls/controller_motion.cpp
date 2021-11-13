@@ -7,6 +7,7 @@
 #include "controls/devices/joystick.h"
 #include "controls/devices/kbcontroller.h"
 #include "controls/game_controls.h"
+#include "controls/touch/gamepad.h"
 #include "options.h"
 
 namespace devilution {
@@ -15,9 +16,9 @@ namespace {
 
 void ScaleJoystickAxes(float *x, float *y, float deadzone)
 {
-	//radial and scaled dead_zone
-	//http://www.third-helix.com/2013/04/12/doing-thumbstick-dead-zones-right.html
-	//input values go from -32767.0...+32767.0, output values are from -1.0 to 1.0;
+	// radial and scaled dead_zone
+	// https://web.archive.org/web/20200130014626/www.third-helix.com:80/2013/04/12/doing-thumbstick-dead-zones-right.html
+	// input values go from -32767.0...+32767.0, output values are from -1.0 to 1.0;
 
 	if (deadzone == 0) {
 		return;
@@ -154,15 +155,27 @@ AxisDirection GetLeftStickOrDpadDirection(bool allowDpad)
 
 	AxisDirection result { AxisDirectionX_NONE, AxisDirectionY_NONE };
 
-	if (stickY >= 0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_UP))) {
+	bool isUpPressed = stickY >= 0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_UP));
+	bool isDownPressed = stickY <= -0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_DOWN));
+	bool isLeftPressed = stickX <= -0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_LEFT));
+	bool isRightPressed = stickX >= 0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_RIGHT));
+
+#if defined(VIRTUAL_GAMEPAD) && !defined(USE_SDL1)
+	isUpPressed |= VirtualGamepadState.directionPad.isUpPressed;
+	isDownPressed |= VirtualGamepadState.directionPad.isDownPressed;
+	isLeftPressed |= VirtualGamepadState.directionPad.isLeftPressed;
+	isRightPressed |= VirtualGamepadState.directionPad.isRightPressed;
+#endif
+
+	if (isUpPressed) {
 		result.y = AxisDirectionY_UP;
-	} else if (stickY <= -0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_DOWN))) {
+	} else if (isDownPressed) {
 		result.y = AxisDirectionY_DOWN;
 	}
 
-	if (stickX <= -0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_LEFT))) {
+	if (isLeftPressed) {
 		result.x = AxisDirectionX_LEFT;
-	} else if (stickX >= 0.5 || (allowDpad && IsControllerButtonPressed(ControllerButton_BUTTON_DPAD_RIGHT))) {
+	} else if (isRightPressed) {
 		result.x = AxisDirectionX_RIGHT;
 	}
 

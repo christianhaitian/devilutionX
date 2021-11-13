@@ -21,7 +21,7 @@ int spelldat_vanilla[] = {
 	-1, -1, -1, 8, 1, 1, -1, 2, 1, 14, 9
 };
 
-static void PackItemUnique(PkItemStruct *id, int idx)
+static void PackItemUnique(ItemPack *id, int idx)
 {
 	id->idx = idx;
 	id->iCreateInfo = 0x2DE;
@@ -33,7 +33,7 @@ static void PackItemUnique(PkItemStruct *id, int idx)
 	id->iSeed = 0x1C0C44B0;
 }
 
-static void PackItemStaff(PkItemStruct *id)
+static void PackItemStaff(ItemPack *id)
 {
 	id->idx = 150;
 	id->iCreateInfo = 0x2010;
@@ -45,7 +45,7 @@ static void PackItemStaff(PkItemStruct *id)
 	id->iSeed = 0x2A15243F;
 }
 
-static void PackItemBow(PkItemStruct *id)
+static void PackItemBow(ItemPack *id)
 {
 	id->idx = 145;
 	id->iCreateInfo = 0x0814;
@@ -57,7 +57,7 @@ static void PackItemBow(PkItemStruct *id)
 	id->iSeed = 0x449D8992;
 }
 
-static void PackItemSword(PkItemStruct *id)
+static void PackItemSword(ItemPack *id)
 {
 	id->idx = 122;
 	id->iCreateInfo = 0x081E;
@@ -69,7 +69,7 @@ static void PackItemSword(PkItemStruct *id)
 	id->iSeed = 0x680FAC02;
 }
 
-static void PackItemRing1(PkItemStruct *id)
+static void PackItemRing1(ItemPack *id)
 {
 	id->idx = 153;
 	id->iCreateInfo = 0xDE;
@@ -81,7 +81,7 @@ static void PackItemRing1(PkItemStruct *id)
 	id->iSeed = 0x5B41AFA8;
 }
 
-static void PackItemRing2(PkItemStruct *id)
+static void PackItemRing2(ItemPack *id)
 {
 	id->idx = 153;
 	id->iCreateInfo = 0xDE;
@@ -93,7 +93,7 @@ static void PackItemRing2(PkItemStruct *id)
 	id->iSeed = 0x1E41FEFC;
 }
 
-static void PackItemAmulet(PkItemStruct *id)
+static void PackItemAmulet(ItemPack *id)
 {
 	id->idx = 155;
 	id->iCreateInfo = 0xDE;
@@ -105,7 +105,7 @@ static void PackItemAmulet(PkItemStruct *id)
 	id->iSeed = 0x70A0383A;
 }
 
-static void PackItemArmor(PkItemStruct *id)
+static void PackItemArmor(ItemPack *id)
 {
 	id->idx = 70;
 	id->iCreateInfo = 0xDE;
@@ -117,7 +117,7 @@ static void PackItemArmor(PkItemStruct *id)
 	id->iSeed = 0x63AAC49B;
 }
 
-static void PackItemFullRejuv(PkItemStruct *id, int i)
+static void PackItemFullRejuv(ItemPack *id, int i)
 {
 	const uint32_t seeds[] = { 0x7C253335, 0x3EEFBFF8, 0x76AFB1A9, 0x38EB45FE, 0x1154E197, 0x5964B644, 0x76B58BEB, 0x002A6E5A };
 	id->idx = ItemMiscIdIdx(IMISC_FULLREJUV);
@@ -130,7 +130,7 @@ static void PackItemFullRejuv(PkItemStruct *id, int i)
 	id->bMCh = 0;
 }
 
-static int PrepareInvSlot(PkPlayerStruct *pPack, int pos, int size, int start = 0)
+static int PrepareInvSlot(PlayerPack *pPack, int pos, int size, int start = 0)
 {
 	static char ret = 0;
 	if (start)
@@ -160,7 +160,7 @@ static int PrepareInvSlot(PkPlayerStruct *pPack, int pos, int size, int start = 
 	return ret - 1;
 }
 
-static void PackPlayerTest(PkPlayerStruct *pPack)
+static void PackPlayerTest(PlayerPack *pPack)
 {
 	memset(pPack, 0, 0x4F2);
 	pPack->destAction = -1;
@@ -191,7 +191,7 @@ static void PackPlayerTest(PkPlayerStruct *pPack)
 	for (auto i = 0; i < 7; i++)
 		pPack->InvBody[i].idx = -1;
 	strcpy(pPack->pName, "TestPlayer");
-	pPack->pClass = static_cast<int8_t>(HeroClass::Rogue);
+	pPack->pClass = static_cast<uint8_t>(HeroClass::Rogue);
 	pPack->pBaseStr = 20 + 35;
 	pPack->pBaseMag = 15 + 55;
 	pPack->pBaseDex = 30 + 220;
@@ -214,7 +214,7 @@ static void PackPlayerTest(PkPlayerStruct *pPack)
 	pPack->_pNumInv = 2;
 }
 
-static void AssertPlayer(PlayerStruct &player)
+static void AssertPlayer(Player &player)
 {
 	ASSERT_EQ(Count8(player._pSplLvl, 64), 23);
 	ASSERT_EQ(Count8(player.InvGrid, NUM_INV_GRID_ELEM), 9);
@@ -286,7 +286,7 @@ static void AssertPlayer(PlayerStruct &player)
 	ASSERT_EQ(player._pMaxHP, 16640);
 	ASSERT_EQ(player._pMana, 14624);
 	ASSERT_EQ(player._pMaxMana, 14624);
-	ASSERT_EQ(player._pNextExper, 2000);
+	ASSERT_EQ(player._pNextExper, 1583495809);
 	ASSERT_EQ(player._pMagResist, 75);
 	ASSERT_EQ(player._pFireResist, 16);
 	ASSERT_EQ(player._pLghtResist, 75);
@@ -331,15 +331,19 @@ TEST(Writehero, pfile_write_hero)
 	gbIsMultiplayer = true;
 	gbIsHellfireSaveGame = false;
 	leveltype = DTYPE_TOWN;
+	giNumberOfLevels = 17;
 
 	MyPlayerId = 0;
+	MyPlayer = &Players[MyPlayerId];
+	*MyPlayer = {};
+
 	_uiheroinfo info {};
 	strcpy(info.name, "TestPlayer");
 	info.heroclass = HeroClass::Rogue;
 	pfile_ui_save_create(&info);
-	PkPlayerStruct pks;
+	PlayerPack pks;
 	PackPlayerTest(&pks);
-	UnPackPlayer(&pks, MyPlayerId, true);
+	UnPackPlayer(&pks, Players[MyPlayerId], true);
 	AssertPlayer(Players[0]);
 	pfile_write_hero();
 

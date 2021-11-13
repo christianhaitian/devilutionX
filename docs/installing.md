@@ -1,11 +1,36 @@
 # Installing
 
-First, you will need access to the game MPQ files.
-- First, locate `DIABDAT.MPQ` on your CD or in the GoG installation (or [extract it from the GoG installer](https://github.com/diasurgical/devilutionX/wiki/Extracting-the-.MPQs-from-the-GoG-installer)).
+First, you will need access to the game's MPQ files.
+- Locate `DIABDAT.MPQ` on your CD, or in the [GoG](https://www.gog.com/game/diablo) installation (or [extract it from the GoG installer](https://github.com/diasurgical/devilutionX/wiki/Extracting-the-.MPQs-from-the-GoG-installer)).
 - For the Diablo: Hellfire expansion you will also need `hellfire.mpq`, `hfmonk.mpq`, `hfmusic.mpq`, `hfvoice.mpq`.
-- Lastly, DevilutionX comes with [devilutionx.mpq](https://github.com/diasurgical/devilutionX/raw/master/Packaging/resources/devilutionx.mpq) which you will also need.
+- DevilutionX comes with [devilutionx.mpq](https://github.com/diasurgical/devilutionx-assets/releases/download/v1/devilutionx.mpq) which is required to run the game properly.
+- Chinese, Korean, and Japanese users will also need [fonts.mpq](https://github.com/diasurgical/devilutionx-assets/releases/download/v1/fonts.mpq) or the text will be missing.
+- For Polish voice support you need [pl.mpq](https://github.com/diasurgical/devilutionx-assets/releases/download/v1/pl.mpq)
 
 Download the latest [DevilutionX release](https://github.com/diasurgical/devilutionX/releases) for your system (if available) and extract the contents to a location of your choosing, or [build from source](building.md). Then follow the system-specific instructions below.
+
+<details><summary>Android</summary>
+
+First install the App via one of these 3 methods:
+  - [Google Play](https://play.google.com/store/apps/details?id=org.diasurgical.devilutionx)
+  - Copy the APK file to the device and tap on it in the device's file explorer and follow the instructions
+  - Install via `adb install` (if USB debugging is enabled on the device)
+
+Then launch the App, this will let it create the folder where you need to place the MPQ files.
+
+Connect the device to your computer via USB cable, and allow data access from your device:
+
+![image](https://user-images.githubusercontent.com/204594/139543023-3c45bb22-35f7-41af-8b3d-c714a9542d23.png)
+  
+Open the device's internal storage, and navigate to `Android/data/org.diasurgical.devilutionx/files`, then copy the MPQ-files to this folder.
+
+![image](https://user-images.githubusercontent.com/204594/139542962-4e776854-6ca4-4872-8ed6-6303fc4bf040.png)
+  
+When the transfer is done you can disconnect your device and press "Check again" in the App to start the game.
+
+![image](https://user-images.githubusercontent.com/204594/139541657-d8c1197d-fbef-42b6-a34f-2b17f1ceab5f.png)
+
+</details>
 
 <details><summary>Windows</summary>
 
@@ -17,30 +42,10 @@ Download the latest [DevilutionX release](https://github.com/diasurgical/devilut
 <details><summary>Linux</summary>
 
 - Copy the MPQ files to the folder containing the DevilutionX executable, or to the data folder. The data folder path may differ depending on distro, version, and security settings, but will normally be `~/.local/share/diasurgical/devilution/`
-- Install [SDL2](https://www.libsdl.org/download-2.0.php) and [SDL2_ttf](https://www.libsdl.org/projects/SDL_ttf/):
- - Ubuntu/Debian/Rasbian `sudo apt install libsdl2-2.0-0 libsdl2-ttf-2.0-0`
- - Fedora `sudo dnf install SDL2 SDL2_ttf`
+- Install [SDL2](https://www.libsdl.org/download-2.0.php):
+ - Ubuntu/Debian/Rasbian `sudo apt install libsdl2-2.0-0`
+ - Fedora `sudo dnf install SDL2`
 - Run `./devilutionx`
-
-</details>
-
-<details><summary>Ubuntu PPA</summary>
-
-- Add [DevilutionX stable](https://launchpad.net/~devilutionx/+archive/ubuntu/stable)
-
-```bash
-sudo add-apt-repository ppa:devilutionx/stable
-```
-
-- Install DeviliutionX
-
-```bash
-sudo apt update
-sudo apt install devilutionx
-```
-
-- Copy the MPQ files to `~/.local/share/diasurgical/devilution/`
-- Run DevilutionX or DevilutionX Hellfire from the menu to start the game
 
 </details>
 
@@ -53,37 +58,30 @@ sudo apt install devilutionx
 
 <details><summary>Nintendo Switch</summary>
 
-- Copy `devilutionx.nro` and `CharisSILB.ttf` in into `/switch/devilutionx`
+- Copy `devilutionx.nro` in into `/switch/devilutionx`
 - Copy the MPQ files to `/switch/devilutionx`.
 - Launch `devilutionx.nro` by holding R the installed game. Do not use the album to launch, if you use the album, the homebrew will only have a small amount of memory available, and the touch keyboard won't work. This is true for all homebrew, not just DevilutionX.
 
 </details>
 
-<details><summary>Android</summary>
+<details><summary>Nintendo 3DS</summary>
 
-- Copy the APK file to device and tap on it on device's file explorer or install via `adb install` (if USB debugging is enabled on device).
-- Place the MPQ-files in `/sdcard/Android/data/org.diasurgical.devilutionx/files` folder
+Download `devilutionx.cia` from the [latest release](https://github.com/diasurgical/devilutionX/releases/latest) and place it on your SD card.
+This file will be used later to install the game on the 3DS console.
 
-</details>
+Copy the MPQ files to the `devilutionx` subfolder under the `3ds` folder on your SD card (`/3ds/devilutionx`). The game will read these files from this location.
+You do not need a copy of `devilutionx.mpq` on your SD card to run the game on 3DS.
+To avoid errors when you run the game, if you have an old version of `devilutionx.mpq` in the folder, you should remove it now.
 
-<details><summary>New Nintendo 3DS</summary>
+![image](https://user-images.githubusercontent.com/9203145/141046152-61be39dc-d14e-4b10-accf-1755a93972f7.png)
 
-### .3dsx installation
+Put the SD card back into the 3DS console and then power it on.
+Use a title manager such as [FBI](https://github.com/Steveice10/FBI) to install `devilutionx.cia`.
+You will no longer need `devilutionx.cia` after this step, and so it can be removed after the installation.
 
-- Copy `devilutionx.3dsx` into `sd:/3ds/devilutionx/`.
-- Copy the MPQ files into `sd:/3ds/devilutionx/`.
-- Copy the `CharisSILB.ttf` font file into `sd:/3ds/devilutionx/`.
-- Launch `devilutionx.3dsx` with the [Homebrew Launcher](https://github.com/fincs/new-hbmenu).
-    - *Note:* When the Hellfire .mpqs are installed you can still launch regular Diablo by passing `--diablo` to `devilutionx.3dsx`.
+![image](https://user-images.githubusercontent.com/9203145/141047377-789e5f1c-d049-4a25-82bb-8b3572d791cf.png)
 
-### .cia installation
-
-- Copy `devilutionx.cia` to your SD card.
-- Copy the MPQ files to `sd:/3ds/devilutionx/`.
-- Copy the `CharisSILB.ttf` font file into `sd:/3ds/devilutionx/`.
-- Install `devilutionx.cia` with a title manager (e.g. [FBI](https://github.com/Steveice10/FBI)).
-    - `devilutionx.cia` can be removed after being installed.
-- Launch Diablo from your 3DS Homemenu.
+[Nintendo 3DS manual](/docs/manual/platforms/3ds.md)
 
 </details>
 
@@ -106,7 +104,7 @@ sudo apt install devilutionx
 
 <details><summary>GKD350h</summary>
 
-- Copy [devilutionx-gkd350h.opk](https://github.com/diasurgical/devilutionX/releases/latest/download/devilutionx-gkd350h.opk) to `/media/data/apps` or `/media/sdcard/apps/`.
+- Copy [devilutionx-gkd350h.opk](https://github.com/diasurgical/devilutionX/releases/download/1.0.1/devilutionx-gkd350h.opk) to `/media/data/apps` or `/media/sdcard/apps/`.
 - Copy the MPQ files to `/usr/local/home/.local/share/diasurgical/devilution/`
 
 </details>

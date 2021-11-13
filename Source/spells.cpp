@@ -27,7 +27,7 @@ namespace {
  * @param player The player whose readied spell is to be checked.
  * @return 'true' when the readied spell is currently valid, and 'false' otherwise.
  */
-bool IsReadiedSpellValid(const PlayerStruct &player)
+bool IsReadiedSpellValid(const Player &player)
 {
 	switch (player._pRSplType) {
 	case RSPLTYPE_SKILL:
@@ -51,7 +51,7 @@ bool IsReadiedSpellValid(const PlayerStruct &player)
  * @note Will force a UI redraw in case the values actually change, so that the new spell reflects on the bottom panel.
  * @param player The player whose readied spell is to be cleared.
  */
-void ClearReadiedSpell(PlayerStruct &player)
+void ClearReadiedSpell(Player &player)
 {
 	if (player._pRSpell != SPL_INVALID) {
 		player._pRSpell = SPL_INVALID;
@@ -101,15 +101,14 @@ void PlacePlayer(int pnum)
 		dPlayer[newPosition.x][newPosition.y] = pnum + 1;
 
 		if (pnum == MyPlayerId) {
-			ViewX = newPosition.x;
-			ViewY = newPosition.y;
+			ViewPosition = newPosition;
 		}
 	}
 }
 
 } // namespace
 
-int GetManaAmount(PlayerStruct &player, spell_id sn)
+int GetManaAmount(Player &player, spell_id sn)
 {
 	int ma; // mana amount
 
@@ -185,14 +184,7 @@ void UseMana(int id, spell_id sn)
 	}
 }
 
-/**
- * @brief Ensures the player's current readied spell is a valid selection for the character. If the current selection is
- * incompatible with the player's items and spell (for example, if the player does not currently have access to the spell),
- * the selection is cleared.
- * @note Will force a UI redraw in case the values actually change, so that the new spell reflects on the bottom panel.
- * @param player The player whose readied spell is to be checked.
- */
-void EnsureValidReadiedSpell(PlayerStruct &player)
+void EnsureValidReadiedSpell(Player &player)
 {
 	if (!IsReadiedSpellValid(player)) {
 		ClearReadiedSpell(player);
@@ -248,10 +240,6 @@ void CastSpell(int id, int spl, int sx, int sy, int dx, int dy, int spllvl)
 	}
 }
 
-/**
- * @param pnum player index
- * @param rid target player index
- */
 void DoResurrect(int pnum, uint16_t rid)
 {
 	if (pnum == MyPlayerId) {
@@ -264,7 +252,7 @@ void DoResurrect(int pnum, uint16_t rid)
 
 	auto &target = Players[rid];
 
-	AddMissile(target.position.tile, target.position.tile, 0, MIS_RESURRECTBEAM, TARGET_MONSTERS, pnum, 0, 0);
+	AddMissile(target.position.tile, target.position.tile, Direction::South, MIS_RESURRECTBEAM, TARGET_MONSTERS, pnum, 0, 0);
 
 	if (target._pHitPoints != 0)
 		return;
@@ -285,13 +273,13 @@ void DoResurrect(int pnum, uint16_t rid)
 	if (target._pMaxHPBase < (10 << 6)) {
 		hp = target._pMaxHPBase;
 	}
-	SetPlayerHitPoints(rid, hp);
+	SetPlayerHitPoints(target, hp);
 
 	target._pHPBase = target._pHitPoints + (target._pMaxHPBase - target._pMaxHP); // CODEFIX: does the same stuff as SetPlayerHitPoints above, can be removed
 	target._pMana = 0;
 	target._pManaBase = target._pMana + (target._pMaxManaBase - target._pMaxMana);
 
-	CalcPlrInv(rid, true);
+	CalcPlrInv(target, true);
 
 	if (target.plrlevel == currlevel) {
 		StartStand(rid, target._pdir);

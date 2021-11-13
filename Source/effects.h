@@ -116,7 +116,9 @@ enum class HeroSpeech {
 	MaybeItsLockedFromTheInside,
 	LooksLikeItsRustedShut,
 	MaybeTheresAnotherWay,
-	LAST = MaybeTheresAnotherWay
+	AuughUh,
+
+	LAST = AuughUh
 };
 
 enum _sfx_id : int16_t {
@@ -1186,9 +1188,6 @@ void effects_cleanup_sfx();
 void sound_init();
 void ui_sound_init();
 void effects_play_sound(const char *sndFile);
-
-#ifndef NOSOUND
 int GetSFXLength(int nSFX);
-#endif
 
 } // namespace devilution

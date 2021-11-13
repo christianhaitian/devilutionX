@@ -137,7 +137,7 @@ void SetmapTransparancy(const char *path)
 
 } // namespace
 
-ObjectStruct &ObjectAtPosition(Point position)
+Object &ObjectAtPosition(Point position)
 {
 	for (int i = 0; i < ActiveObjectCount; i++) {
 		int oi = ActiveObjects[i];
@@ -147,9 +147,6 @@ ObjectStruct &ObjectAtPosition(Point position)
 	app_fatal("ObjectAtPosition: Active object not found at (%i,%i)", position.x, position.y);
 }
 
-/**
- * @brief Load a quest map, the given map is specified via the global setlvlnum
- */
 void LoadSetMap()
 {
 	switch (setlvlnum) {

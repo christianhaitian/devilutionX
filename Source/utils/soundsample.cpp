@@ -14,8 +14,7 @@
 #endif
 
 #include "options.h"
-#include "storm/storm.h"
-#include "storm/storm_sdl_rw.h"
+#include "engine/game_assets.hpp"
 #include "utils/log.hpp"
 #include "utils/math.h"
 #include "utils/stubs.h"
@@ -117,13 +116,13 @@ void SoundSample::Stop()
 int SoundSample::SetChunkStream(std::string filePath)
 {
 	file_path_ = std::move(filePath);
-	HANDLE handle;
-	if (!SFileOpenFile(file_path_.c_str(), &handle)) {
-		LogError(LogCategory::Audio, "SFileOpenFile failed (from SoundSample::SetChunkStream): {}", SErrGetLastError());
+	SDL_RWops *handle = OpenAsset(file_path_.c_str(), /*threadsafe=*/true);
+	if (handle == nullptr) {
+		LogError(LogCategory::Audio, "OpenAsset failed (from SoundSample::SetChunkStream): {}", SDL_GetError());
 		return -1;
 	}
 
-	stream_ = std::make_unique<Aulib::Stream>(SFileRw_FromStormHandle(handle), std::make_unique<Aulib::DecoderDrwav>(),
+	stream_ = std::make_unique<Aulib::Stream>(handle, std::make_unique<Aulib::DecoderDrwav>(),
 	    std::make_unique<Aulib::ResamplerSpeex>(sgOptions.Audio.nResamplingQuality), /*closeRw=*/true);
 	if (!stream_->open()) {
 		stream_ = nullptr;

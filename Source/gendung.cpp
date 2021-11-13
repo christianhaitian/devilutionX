@@ -32,17 +32,14 @@ std::array<bool, MAXTILES + 1> nSolidTable;
 std::array<bool, MAXTILES + 1> nTransTable;
 std::array<bool, MAXTILES + 1> nMissileTable;
 std::array<bool, MAXTILES + 1> nTrapTable;
-int dminx;
-int dminy;
-int dmaxx;
-int dmaxy;
+Point dminPosition;
+Point dmaxPosition;
 dungeon_type leveltype;
-BYTE currlevel;
+uint8_t currlevel;
 bool setlevel;
 _setlevels setlvlnum;
 dungeon_type setlvltype;
-int ViewX;
-int ViewY;
+Point ViewPosition;
 ScrollStruct ScrollInfo;
 int MicroTileLen;
 char TransVal;
@@ -52,10 +49,10 @@ MICROS dpiece_defs_map_2[MAXDUNX][MAXDUNY];
 int8_t dTransVal[MAXDUNX][MAXDUNY];
 char dLight[MAXDUNX][MAXDUNY];
 char dPreLight[MAXDUNX][MAXDUNY];
-int8_t dFlags[MAXDUNX][MAXDUNY];
+DungeonFlag dFlags[MAXDUNX][MAXDUNY];
 int8_t dPlayer[MAXDUNX][MAXDUNY];
 int16_t dMonster[MAXDUNX][MAXDUNY];
-int8_t dDead[MAXDUNX][MAXDUNY];
+int8_t dCorpse[MAXDUNX][MAXDUNY];
 char dObject[MAXDUNX][MAXDUNY];
 int8_t dItem[MAXDUNX][MAXDUNY];
 char dSpecial[MAXDUNX][MAXDUNY];
@@ -443,7 +440,7 @@ void DRLG_SetPC()
 
 	for (int j = 0; j < h; j++) {
 		for (int i = 0; i < w; i++) {
-			dFlags[i + x][j + y] |= BFLAG_POPULATED;
+			dFlags[i + x][j + y] |= DungeonFlag::Populated;
 		}
 	}
 }
@@ -457,7 +454,7 @@ void Make_SetPC(int x, int y, int w, int h)
 
 	for (int j = 0; j < dh; j++) {
 		for (int i = 0; i < dw; i++) {
-			dFlags[i + dx][j + dy] |= BFLAG_POPULATED;
+			dFlags[i + dx][j + dy] |= DungeonFlag::Populated;
 		}
 	}
 }
@@ -504,10 +501,10 @@ void DRLG_HoldThemeRooms()
 			for (int x = themeLoc[i].x; x < themeLoc[i].x + themeLoc[i].width - 1; x++) {
 				int xx = 2 * x + 16;
 				int yy = 2 * y + 16;
-				dFlags[xx][yy] |= BFLAG_POPULATED;
-				dFlags[xx + 1][yy] |= BFLAG_POPULATED;
-				dFlags[xx][yy + 1] |= BFLAG_POPULATED;
-				dFlags[xx + 1][yy + 1] |= BFLAG_POPULATED;
+				dFlags[xx][yy] |= DungeonFlag::Populated;
+				dFlags[xx + 1][yy] |= DungeonFlag::Populated;
+				dFlags[xx][yy + 1] |= DungeonFlag::Populated;
+				dFlags[xx + 1][yy + 1] |= DungeonFlag::Populated;
 			}
 		}
 	}
@@ -564,7 +561,7 @@ void DRLG_Init_Globals()
 	memset(dFlags, 0, sizeof(dFlags));
 	memset(dPlayer, 0, sizeof(dPlayer));
 	memset(dMonster, 0, sizeof(dMonster));
-	memset(dDead, 0, sizeof(dDead));
+	memset(dCorpse, 0, sizeof(dCorpse));
 	memset(dObject, 0, sizeof(dObject));
 	memset(dItem, 0, sizeof(dItem));
 	memset(dSpecial, 0, sizeof(dSpecial));

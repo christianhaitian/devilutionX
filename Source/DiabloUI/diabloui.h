@@ -33,6 +33,9 @@ enum _mainmenu_selections : uint8_t {
 	MAINMENU_MULTIPLAYER,
 	MAINMENU_REPLAY_INTRO,
 	MAINMENU_SHOW_SUPPORT,
+	MAINMENU_EXTRAS,
+	MAINMENU_SWITCHGAME,
+	MAINMENU_TOGGLESPAWN,
 	MAINMENU_SHOW_CREDITS,
 	MAINMENU_EXIT_DIABLO,
 	MAINMENU_ATTRACT_MODE,
@@ -86,7 +89,7 @@ inline SDL_Surface *DiabloUiSurface()
 	// to an off-screen surface first to avoid flickering / tearing.
 	if ((output_surface->flags & SDL_HWSURFACE) != 0
 	    && (output_surface->flags & SDL_DOUBLEBUF) == 0) {
-		return pal_surface;
+		return PalSurface;
 	}
 #endif
 
@@ -119,7 +122,7 @@ void UiAddLogo(std::vector<std::unique_ptr<UiItemBase>> *vecDialog, int size = L
 void UiFocusNavigationSelect();
 void UiFocusNavigationEsc();
 void UiFocusNavigationYesNo();
-void UiInitList(int count, void (*fnFocus)(int value), void (*fnSelect)(int value), void (*fnEsc)(), const std::vector<std::unique_ptr<UiItemBase>> &items, bool wraps = false, bool (*fnYesNo)() = NULL);
+void UiInitList(int count, void (*fnFocus)(int value), void (*fnSelect)(int value), void (*fnEsc)(), const std::vector<std::unique_ptr<UiItemBase>> &items, bool wraps = false, bool (*fnYesNo)() = NULL, size_t selectedItem = 0);
 void UiInitScrollBar(UiScrollbar *uiSb, std::size_t viewportSize, const std::size_t *currentOffset);
 void UiClearScreen();
 void UiPollAndRender();

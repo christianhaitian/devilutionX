@@ -200,9 +200,20 @@ void DrlgTPass3()
 
 } // namespace
 
-/**
- * @brief Update the map to show the open hive
- */
+bool OpensHive(Point position)
+{
+	int yp = position.y;
+	int xp = position.x;
+	return xp >= 79 && xp <= 82 && yp >= 61 && yp <= 64;
+}
+
+bool OpensGrave(Point position)
+{
+	int yp = position.y;
+	int xp = position.x;
+	return xp >= 35 && xp <= 38 && yp >= 20 && yp <= 24;
+}
+
 void TownOpenHive()
 {
 	dPiece[78][60] = 0x48a;
@@ -254,9 +265,6 @@ void TownOpenHive()
 	SetDungeonMicros();
 }
 
-/**
- * @brief Update the map to show the open grave
- */
 void TownOpenGrave()
 {
 	dPiece[36][21] = 0x533;
@@ -272,45 +280,32 @@ void TownOpenGrave()
 	SetDungeonMicros();
 }
 
-/**
- * @brief Initialize town level
- * @param entry Methode of entry
- */
 void CreateTown(lvl_entry entry)
 {
-	dminx = 10;
-	dminy = 10;
-	dmaxx = 84;
-	dmaxy = 84;
+	dminPosition = { 10, 10 };
+	dmaxPosition = { 84, 84 };
 	DRLG_InitTrans();
 	DRLG_Init_Globals();
 
 	if (entry == ENTRY_MAIN) { // New game
-		ViewX = 75;
-		ViewY = 68;
+		ViewPosition = { 75, 68 };
 	} else if (entry == ENTRY_PREV) { // Cathedral
-		ViewX = 25;
-		ViewY = 31;
+		ViewPosition = { 25, 31 };
 	} else if (entry == ENTRY_TWARPUP) {
 		if (TWarpFrom == 5) {
-			ViewX = 49;
-			ViewY = 22;
+			ViewPosition = { 49, 22 };
 		}
 		if (TWarpFrom == 9) {
-			ViewX = 18;
-			ViewY = 69;
+			ViewPosition = { 18, 69 };
 		}
 		if (TWarpFrom == 13) {
-			ViewX = 41;
-			ViewY = 81;
+			ViewPosition = { 41, 81 };
 		}
 		if (TWarpFrom == 21) {
-			ViewX = 36;
-			ViewY = 25;
+			ViewPosition = { 36, 25 };
 		}
 		if (TWarpFrom == 17) {
-			ViewX = 79;
-			ViewY = 62;
+			ViewPosition = { 79, 62 };
 		}
 	}
 

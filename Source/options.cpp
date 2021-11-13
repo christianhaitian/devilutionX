@@ -53,6 +53,12 @@ namespace devilution {
 #define DEFAULT_AUDIO_RESAMPLING_QUALITY 5
 #endif
 
+#if defined(VIRTUAL_GAMEPAD) && !defined(USE_SDL1)
+#define AUTO_PICKUP_DEFAULT(bValue) true
+#else
+#define AUTO_PICKUP_DEFAULT(bValue) bValue
+#endif
+
 namespace {
 
 std::string GetIniPath()
@@ -69,7 +75,7 @@ CSimpleIni &GetIni()
 		auto path = GetIniPath();
 		auto stream = CreateFileStream(path.c_str(), std::fstream::in | std::fstream::binary);
 		ini.SetSpaces(false);
-		if (stream != nullptr)
+		if (stream)
 			ini.LoadData(*stream);
 		isIniLoaded = true;
 	}
@@ -198,7 +204,8 @@ bool GetIniValue(const char *sectionName, const char *keyName, char *string, int
 		strncpy(string, defaultString, stringSize);
 		return false;
 	}
-	strncpy(string, value, stringSize);
+	strncpy(string, value, stringSize - 1);
+	string[stringSize - 1] = '\0';
 	return true;
 }
 
@@ -206,19 +213,22 @@ bool GetIniValue(const char *sectionName, const char *keyName, char *string, int
 Options sgOptions;
 bool sbWasOptionsLoaded = false;
 
-/**
- * @brief Load game configurations from ini file
- */
 void LoadOptions()
 {
 	sgOptions.Diablo.bIntro = GetIniBool("Diablo", "Intro", true);
+	sgOptions.Diablo.lastSinglePlayerHero = GetIniInt("Diablo", "LastSinglePlayerHero", 0);
+	sgOptions.Diablo.lastMultiplayerHero = GetIniInt("Diablo", "LastMultiplayerHero", 0);
 	sgOptions.Hellfire.bIntro = GetIniBool("Hellfire", "Intro", true);
+	sgOptions.Hellfire.lastSinglePlayerHero = GetIniInt("Hellfire", "LastSinglePlayerHero", 0);
+	sgOptions.Hellfire.lastMultiplayerHero = GetIniInt("Hellfire", "LastMultiplayerHero", 0);
+	sgOptions.Hellfire.startUpGameOption = static_cast<StartUpGameOption>(GetIniInt("Hellfire", "StartUpGameOption", static_cast<int>(StartUpGameOption::None)));
 	GetIniValue("Hellfire", "SItem", sgOptions.Hellfire.szItem, sizeof(sgOptions.Hellfire.szItem), "");
 
 	sgOptions.Audio.nSoundVolume = GetIniInt("Audio", "Sound Volume", VOLUME_MAX);
 	sgOptions.Audio.nMusicVolume = GetIniInt("Audio", "Music Volume", VOLUME_MAX);
 	sgOptions.Audio.bWalkingSound = GetIniBool("Audio", "Walking Sound", true);
-	sgOptions.Audio.bAutoEquipSound = GetIniBool("Audio", "Auto Equip Sound", false);
+	sgOptions.Audio.bAutoEquipSound = GetIniBool("Audio", "Auto Equip Sound", AUTO_PICKUP_DEFAULT(false));
+	sgOptions.Audio.bItemPickupSound = GetIniBool("Audio", "Item Pickup Sound", AUTO_PICKUP_DEFAULT(false));
 
 	sgOptions.Audio.nSampleRate = GetIniInt("Audio", "Sample Rate", DEFAULT_AUDIO_SAMPLE_RATE);
 	sgOptions.Audio.nChannels = GetIniInt("Audio", "Channels", DEFAULT_AUDIO_CHANNELS);
@@ -253,25 +263,26 @@ void LoadOptions()
 	sgOptions.Graphics.bShowFPS = (GetIniInt("Graphics", "Show FPS", 0) != 0);
 
 	sgOptions.Gameplay.nTickRate = GetIniInt("Game", "Speed", 20);
-	sgOptions.Gameplay.bRunInTown = GetIniBool("Game", "Run in Town", false);
+	sgOptions.Gameplay.bRunInTown = GetIniBool("Game", "Run in Town", AUTO_PICKUP_DEFAULT(false));
 	sgOptions.Gameplay.bGrabInput = GetIniBool("Game", "Grab Input", false);
 	sgOptions.Gameplay.bTheoQuest = GetIniBool("Game", "Theo Quest", false);
 	sgOptions.Gameplay.bCowQuest = GetIniBool("Game", "Cow Quest", false);
 	sgOptions.Gameplay.bFriendlyFire = GetIniBool("Game", "Friendly Fire", true);
 	sgOptions.Gameplay.bTestBard = GetIniBool("Game", "Test Bard", false);
 	sgOptions.Gameplay.bTestBarbarian = GetIniBool("Game", "Test Barbarian", false);
-	sgOptions.Gameplay.bExperienceBar = GetIniBool("Game", "Experience Bar", false);
+	sgOptions.Gameplay.bExperienceBar = GetIniBool("Game", "Experience Bar", AUTO_PICKUP_DEFAULT(false));
 	sgOptions.Gameplay.bEnemyHealthBar = GetIniBool("Game", "Enemy Health Bar", false);
-	sgOptions.Gameplay.bAutoGoldPickup = GetIniBool("Game", "Auto Gold Pickup", false);
+	sgOptions.Gameplay.bAutoGoldPickup = GetIniBool("Game", "Auto Gold Pickup", AUTO_PICKUP_DEFAULT(false));
 	sgOptions.Gameplay.bAdriaRefillsMana = GetIniBool("Game", "Adria Refills Mana", false);
 	sgOptions.Gameplay.bAutoEquipWeapons = GetIniBool("Game", "Auto Equip Weapons", true);
-	sgOptions.Gameplay.bAutoEquipArmor = GetIniBool("Game", "Auto Equip Armor", false);
-	sgOptions.Gameplay.bAutoEquipHelms = GetIniBool("Game", "Auto Equip Helms", false);
-	sgOptions.Gameplay.bAutoEquipShields = GetIniBool("Game", "Auto Equip Shields", false);
-	sgOptions.Gameplay.bAutoEquipJewelry = GetIniBool("Game", "Auto Equip Jewelry", false);
+	sgOptions.Gameplay.bAutoEquipArmor = GetIniBool("Game", "Auto Equip Armor", AUTO_PICKUP_DEFAULT(false));
+	sgOptions.Gameplay.bAutoEquipHelms = GetIniBool("Game", "Auto Equip Helms", AUTO_PICKUP_DEFAULT(false));
+	sgOptions.Gameplay.bAutoEquipShields = GetIniBool("Game", "Auto Equip Shields", AUTO_PICKUP_DEFAULT(false));
+	sgOptions.Gameplay.bAutoEquipJewelry = GetIniBool("Game", "Auto Equip Jewelry", AUTO_PICKUP_DEFAULT(false));
 	sgOptions.Gameplay.bRandomizeQuests = GetIniBool("Game", "Randomize Quests", true);
 	sgOptions.Gameplay.bShowMonsterType = GetIniBool("Game", "Show Monster Type", false);
 	sgOptions.Gameplay.bDisableCripplingShrines = GetIniBool("Game", "Disable Crippling Shrines", false);
+	sgOptions.Gameplay.bAutoRefillBelt = GetIniBool("Game", "Auto Refill Belt", AUTO_PICKUP_DEFAULT(false));
 
 	GetIniValue("Network", "Bind Address", sgOptions.Network.szBindAddress, sizeof(sgOptions.Network.szBindAddress), "0.0.0.0");
 	sgOptions.Network.nPort = GetIniInt("Network", "Port", 6112);
@@ -340,6 +351,7 @@ void LoadOptions()
 	std::string locale = std::locale("").name().substr(0, 5);
 #endif
 
+	locale = locale.substr(0, 5);
 	LogVerbose("Prefered locale: {}", locale);
 	if (!HasTranslation(locale)) {
 		locale = locale.substr(0, 2);
@@ -359,19 +371,22 @@ void LoadOptions()
 	sbWasOptionsLoaded = true;
 }
 
-/**
- * @brief Save game configurations to ini file
- */
 void SaveOptions()
 {
 	SetIniValue("Diablo", "Intro", sgOptions.Diablo.bIntro);
+	SetIniValue("Diablo", "LastSinglePlayerHero", sgOptions.Diablo.lastSinglePlayerHero);
+	SetIniValue("Diablo", "LastMultiplayerHero", sgOptions.Diablo.lastMultiplayerHero);
 	SetIniValue("Hellfire", "Intro", sgOptions.Hellfire.bIntro);
 	SetIniValue("Hellfire", "SItem", sgOptions.Hellfire.szItem);
+	SetIniValue("Hellfire", "LastSinglePlayerHero", sgOptions.Hellfire.lastSinglePlayerHero);
+	SetIniValue("Hellfire", "LastMultiplayerHero", sgOptions.Hellfire.lastMultiplayerHero);
+	SetIniValue("Hellfire", "StartUpGameOption", static_cast<int>(sgOptions.Hellfire.startUpGameOption));
 
 	SetIniValue("Audio", "Sound Volume", sgOptions.Audio.nSoundVolume);
 	SetIniValue("Audio", "Music Volume", sgOptions.Audio.nMusicVolume);
 	SetIniValue("Audio", "Walking Sound", sgOptions.Audio.bWalkingSound);
 	SetIniValue("Audio", "Auto Equip Sound", sgOptions.Audio.bAutoEquipSound);
+	SetIniValue("Audio", "Item Pickup Sound", sgOptions.Audio.bItemPickupSound);
 
 	SetIniValue("Audio", "Sample Rate", sgOptions.Audio.nSampleRate);
 	SetIniValue("Audio", "Channels", sgOptions.Audio.nChannels);
@@ -420,6 +435,7 @@ void SaveOptions()
 	SetIniValue("Game", "Randomize Quests", sgOptions.Gameplay.bRandomizeQuests);
 	SetIniValue("Game", "Show Monster Type", sgOptions.Gameplay.bShowMonsterType);
 	SetIniValue("Game", "Disable Crippling Shrines", sgOptions.Gameplay.bDisableCripplingShrines);
+	SetIniValue("Game", "Auto Refill Belt", sgOptions.Gameplay.bAutoRefillBelt);
 
 	SetIniValue("Network", "Bind Address", sgOptions.Network.szBindAddress);
 	SetIniValue("Network", "Port", sgOptions.Network.nPort);

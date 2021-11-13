@@ -12,6 +12,7 @@
 #include "engine/cel_sprite.hpp"
 #include "engine/point.hpp"
 #include "scrollrt.h"
+#include "utils/enum_traits.h"
 #include "utils/stdcompat/optional.hpp"
 
 namespace devilution {
@@ -32,6 +33,8 @@ enum _setlevels : int8_t {
 	SL_MAZE,
 	SL_POISONWATER,
 	SL_VILEBETRAYER,
+
+	SL_LAST = SL_VILEBETRAYER,
 };
 
 enum dungeon_type : int8_t {
@@ -42,6 +45,8 @@ enum dungeon_type : int8_t {
 	DTYPE_HELL,
 	DTYPE_NEST,
 	DTYPE_CRYPT,
+
+	DTYPE_LAST = DTYPE_CRYPT,
 	DTYPE_NONE = -1,
 };
 
@@ -65,23 +70,28 @@ enum {
 	// clang-format on
 };
 
-enum {
+enum class DungeonFlag : uint8_t {
 	// clang-format off
-	BFLAG_MISSILE     = 1 << 0,
-	BFLAG_VISIBLE     = 1 << 1,
-	BFLAG_DEAD_PLAYER = 1 << 2,
-	BFLAG_POPULATED   = 1 << 3,
-	BFLAG_MONSTLR     = 1 << 4,
-	BFLAG_PLAYERLR    = 1 << 5,
-	BFLAG_LIT         = 1 << 6,
-	BFLAG_EXPLORED    = 1 << 7,
+	None        = 0, // Only used by lighting/automap
+	Missile     = 1 << 0,
+	Visible     = 1 << 1,
+	DeadPlayer  = 1 << 2,
+	Populated   = 1 << 3,
+	// 1 << 4 and 1 << 5 were used as workarounds for a bug with horizontal movement (relative to the screen) for monsters and players respectively
+	Lit         = 1 << 6,
+	Explored    = 1 << 7,
+	SavedFlags  = (Populated | Lit | Explored), // ~(Missile | Visible | DeadPlayer)
+	LoadedFlags = (Missile | Visible | DeadPlayer | Populated | Lit | Explored)
 	// clang-format on
 };
+use_enum_as_flags(DungeonFlag);
 
 enum _difficulty : uint8_t {
 	DIFF_NORMAL,
 	DIFF_NIGHTMARE,
 	DIFF_HELL,
+
+	DIFF_LAST = DIFF_HELL,
 };
 
 struct ScrollStruct {
@@ -90,7 +100,7 @@ struct ScrollStruct {
 	/** @brief Pixel offset of camera. */
 	Displacement offset;
 	/** @brief Move direction of camera. */
-	_scroll_direction _sdir;
+	ScrollDirection _sdir;
 };
 
 struct THEME_LOC {
@@ -165,27 +175,21 @@ extern std::array<bool, MAXTILES + 1> nTransTable;
  */
 extern std::array<bool, MAXTILES + 1> nMissileTable;
 extern std::array<bool, MAXTILES + 1> nTrapTable;
-/** Specifies the minimum X-coordinate of the map. */
-extern int dminx;
-/** Specifies the minimum Y-coordinate of the map. */
-extern int dminy;
-/** Specifies the maximum X-coordinate of the map. */
-extern int dmaxx;
-/** Specifies the maximum Y-coordinate of the map. */
-extern int dmaxy;
+/** Specifies the minimum X,Y-coordinates of the map. */
+extern Point dminPosition;
+/** Specifies the maximum X,Y-coordinates of the map. */
+extern Point dmaxPosition;
 /** Specifies the active dungeon type of the current game. */
 extern dungeon_type leveltype;
 /** Specifies the active dungeon level of the current game. */
-extern BYTE currlevel;
+extern uint8_t currlevel;
 extern bool setlevel;
 /** Specifies the active quest level of the current game. */
 extern _setlevels setlvlnum;
 /** Specifies the player viewpoint X-coordinate of the map. */
 extern dungeon_type setlvltype;
-/** Specifies the player viewpoint X-coordinate of the map. */
-extern int ViewX;
-/** Specifies the player viewpoint Y-coordinate of the map. */
-extern int ViewY;
+/** Specifies the player viewpoint X,Y-coordinates of the map. */
+extern Point ViewPosition;
 extern ScrollStruct ScrollInfo;
 extern int MicroTileLen;
 extern char TransVal;
@@ -199,7 +203,9 @@ extern MICROS dpiece_defs_map_2[MAXDUNX][MAXDUNY];
 extern int8_t dTransVal[MAXDUNX][MAXDUNY];
 extern char dLight[MAXDUNX][MAXDUNY];
 extern char dPreLight[MAXDUNX][MAXDUNY];
-extern int8_t dFlags[MAXDUNX][MAXDUNY];
+/** Holds various information about dungeon tiles, @see DungeonFlag */
+extern DungeonFlag dFlags[MAXDUNX][MAXDUNY];
+
 /** Contains the player numbers (players array indices) of the map. */
 extern int8_t dPlayer[MAXDUNX][MAXDUNY];
 /**
@@ -214,7 +220,7 @@ extern int16_t dMonster[MAXDUNX][MAXDUNY];
  * dDead[x][y] & 0x1F - index of dead
  * dDead[x][y] >> 0x5 - direction
  */
-extern int8_t dDead[MAXDUNX][MAXDUNY];
+extern int8_t dCorpse[MAXDUNX][MAXDUNY];
 /** Contains the object numbers (objects array indices) of the map. */
 extern char dObject[MAXDUNX][MAXDUNY];
 /** Contains the item numbers (items array indices) of the map. */
@@ -227,6 +233,67 @@ extern int8_t dItem[MAXDUNX][MAXDUNY];
 extern char dSpecial[MAXDUNX][MAXDUNY];
 extern int themeCount;
 extern THEME_LOC themeLoc[MAXTHEMES];
+
+constexpr bool InDungeonBounds(Point position)
+{
+	return position.x >= 0 && position.x < MAXDUNX && position.y >= 0 && position.y < MAXDUNY;
+}
+
+/**
+ * @brief Checks if a given tile contains at least one missile
+ * @param position Coordinates of the dungeon tile to check
+ * @return true if a missile exists at this position
+ */
+constexpr bool TileContainsMissile(Point position)
+{
+	return InDungeonBounds(position) && HasAnyOf(dFlags[position.x][position.y], DungeonFlag::Missile);
+}
+
+/**
+ * @brief Checks if a given tile contains a player corpse
+ * @param position Coordinates of the dungeon tile to check
+ * @return true if a dead player exists at this position
+ */
+constexpr bool TileContainsDeadPlayer(Point position)
+{
+	return InDungeonBounds(position) && HasAnyOf(dFlags[position.x][position.y], DungeonFlag::DeadPlayer);
+}
+
+/**
+ * @brief Check if a given tile contains a decorative object (or similar non-pathable set piece)
+ *
+ * This appears to include stairs so that monsters do not spawn or path onto them, but players can path to them to navigate between layers
+ *
+ * @param position Coordinates of the dungeon tile to check
+ * @return true if a set piece was spawned at this position
+ */
+constexpr bool TileContainsSetPiece(Point position)
+{
+	return InDungeonBounds(position) && HasAnyOf(dFlags[position.x][position.y], DungeonFlag::Populated);
+}
+
+/**
+ * @brief Checks if any player can currently see this tile
+ *
+ * Currently only used by monster AI routines so basic monsters out of sight can be ignored until they're likely to interact with the player
+ *
+ * @param position Coordinates of the dungeon tile to check
+ * @return true if the tile is within at least one players vision
+ */
+constexpr bool IsTileVisible(Point position)
+{
+	return InDungeonBounds(position) && HasAnyOf(dFlags[position.x][position.y], DungeonFlag::Visible);
+}
+
+/**
+ * @brief Checks if a light source is illuminating this tile
+ * @param position Coordinates of the dungeon tile to check
+ * @return true if the tile is within the radius of at least one light source
+ */
+constexpr bool IsTileLit(Point position)
+{
+	return InDungeonBounds(position) && HasAnyOf(dFlags[position.x][position.y], DungeonFlag::Lit);
+}
 
 void FillSolidBlockTbls();
 void SetDungeonMicros();

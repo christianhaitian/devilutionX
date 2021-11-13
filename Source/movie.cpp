@@ -8,12 +8,9 @@
 #include "effects.h"
 #include "engine/demomode.h"
 #include "hwcursor.hpp"
+#include "sound.h"
 #include "storm/storm_svid.h"
 #include "utils/display.h"
-
-#ifndef NOSOUND
-#include "sound.h"
-#endif
 
 namespace devilution {
 
@@ -22,11 +19,6 @@ bool movie_playing;
 /** Should the movie play in a loop. */
 bool loop_movie;
 
-/**
- * @brief Start playback of a given video.
- * @param pszMovie The file name of the video
- * @param user_can_close Set to false to make the video unskippable.
- */
 void play_movie(const char *pszMovie, bool userCanClose)
 {
 	if (demo::IsRunning())
@@ -34,11 +26,9 @@ void play_movie(const char *pszMovie, bool userCanClose)
 
 	movie_playing = true;
 
-#ifndef NOSOUND
 	sound_disable_music(true);
 	stream_stop();
 	effects_play_sound("Sfx\\Misc\\blank.wav");
-#endif
 
 	if (IsHardwareCursorEnabled()) {
 		SetHardwareCursorVisible(false);
@@ -66,9 +56,7 @@ void play_movie(const char *pszMovie, bool userCanClose)
 		SVidPlayEnd();
 	}
 
-#ifndef NOSOUND
 	sound_disable_music(false);
-#endif
 
 	movie_playing = false;
 
@@ -76,10 +64,6 @@ void play_movie(const char *pszMovie, bool userCanClose)
 	OutputToLogical(&MousePosition.x, &MousePosition.y);
 }
 
-/**
- * @brief Fade to black and play a video
- * @param pszMovie file path of movie
- */
 void PlayInGameMovie(const char *pszMovie)
 {
 	PaletteFadeOut(8);

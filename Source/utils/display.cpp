@@ -30,7 +30,7 @@
 
 namespace devilution {
 
-extern SDL_Surface *renderer_texture_surface; /** defined in dx.cpp */
+extern SDLSurfaceUniquePtr RendererTextureSurface; /** defined in dx.cpp */
 
 Uint16 gnScreenWidth;
 Uint16 gnScreenHeight;
@@ -132,7 +132,7 @@ bool SpawnWindow(const char *lpWindowName)
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(USE_SDL1)
 	// The default WASAPI backend causes distortions
 	// https://github.com/diasurgical/devilutionX/issues/1434
 	SDL_setenv("SDL_AUDIODRIVER", "winmm", /*overwrite=*/false);
@@ -230,10 +230,7 @@ bool SpawnWindow(const char *lpWindowName)
 			ErrSdl();
 		}
 
-		texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, width, height);
-		if (texture == nullptr) {
-			ErrSdl();
-		}
+		texture = SDLWrap::CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, width, height);
 
 		if (sgOptions.Graphics.bIntegerScaling && SDL_RenderSetIntegerScale(renderer, SDL_TRUE) < 0) {
 			ErrSdl();
@@ -260,11 +257,17 @@ bool SpawnWindow(const char *lpWindowName)
 SDL_Surface *GetOutputSurface()
 {
 #ifdef USE_SDL1
-	return SDL_GetVideoSurface();
+	SDL_Surface *ret = SDL_GetVideoSurface();
+	if (ret == nullptr)
+		ErrSdl();
+	return ret;
 #else
 	if (renderer != nullptr)
-		return renderer_texture_surface;
-	return SDL_GetWindowSurface(ghMainWnd);
+		return RendererTextureSurface.get();
+	SDL_Surface *ret = SDL_GetWindowSurface(ghMainWnd);
+	if (ret == nullptr)
+		ErrSdl();
+	return ret;
 #endif
 }
 

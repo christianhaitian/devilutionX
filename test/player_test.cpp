@@ -15,7 +15,7 @@ int RunBlockTest(int frames, int flags)
 
 	player._pHFrames = frames;
 	player._pIFlags = flags;
-	StartPlrHit(pnum, 5, Direction::DIR_S);
+	StartPlrHit(pnum, 5, false);
 
 	int i = 1;
 	for (; i < 100; i++) {
@@ -81,7 +81,7 @@ TEST(Player, PM_DoGotHit)
 	}
 }
 
-static void AssertPlayer(PlayerStruct &player)
+static void AssertPlayer(Player &player)
 {
 	ASSERT_EQ(Count8(player._pSplLvl, 64), 0);
 	ASSERT_EQ(Count8(player.InvGrid, NUM_INV_GRID_ELEM), 1);

@@ -17,15 +17,16 @@
 #include "engine/random.hpp"
 #include "gamemenu.h"
 #include "init.h"
+#include "inv_iterators.hpp"
 #include "lighting.h"
 #include "loadsave.h"
 #include "minitext.h"
 #include "missiles.h"
 #include "options.h"
+#include "player.h"
 #include "qol/autopickup.h"
 #include "spells.h"
 #include "stores.h"
-#include "storm/storm.h"
 #include "towners.h"
 #include "utils/language.h"
 #include "utils/log.hpp"
@@ -33,7 +34,8 @@
 namespace devilution {
 
 int MyPlayerId;
-PlayerStruct Players[MAX_PLRS];
+Player *MyPlayer;
+Player Players[MAX_PLRS];
 bool MyPlayerIsDead;
 int deathdelay;
 
@@ -41,9 +43,9 @@ int deathdelay;
 int plrxoff[9] = { 0, 2, 0, 2, 1, 0, 1, 2, 1 };
 /** Specifies the Y-coordinate delta from the player start location in Tristram. */
 int plryoff[9] = { 0, 2, 2, 0, 1, 1, 0, 1, 2 };
-/** Specifies the X-coordinate delta from a player, used for instanced when casting resurrect. */
+/** Specifies the X-coordinate delta from a player, used for instance when casting resurrect. */
 int plrxoff2[9] = { 0, 1, 0, 1, 2, 0, 1, 2, 2 };
-/** Specifies the Y-coordinate delta from a player, used for instanced when casting resurrect. */
+/** Specifies the Y-coordinate delta from a player, used for instance when casting resurrect. */
 int plryoff2[9] = { 0, 0, 1, 1, 0, 2, 2, 1, 2 };
 
 /** Maps from player_class to starting stat in strength. */
@@ -156,7 +158,7 @@ struct DirectionSettings {
 	Displacement tileAdd;
 	Displacement offset;
 	Displacement map;
-	_scroll_direction scrollDir;
+	ScrollDirection scrollDir;
 	PLR_MODE walkMode;
 	void (*walkModeHandler)(int, const DirectionSettings &);
 };
@@ -219,12 +221,12 @@ const char *const ClassPathTbl[] = {
 	"Warrior",
 };
 
-void PmChangeLightOff(PlayerStruct &player)
+void PmChangeLightOff(Player &player)
 {
 	if (player._plid == NO_LIGHT)
 		return;
 
-	const LightStruct *l = &Lights[player._plid];
+	const Light *l = &Lights[player._plid];
 	int x = 2 * player.position.offset.deltaY + player.position.offset.deltaX;
 	int y = 2 * player.position.offset.deltaY - player.position.offset.deltaX;
 
@@ -267,10 +269,7 @@ void WalkSides(int pnum, const DirectionSettings &walkParams)
 	Point const nextPosition = player.position.tile + walkParams.map;
 
 	dPlayer[player.position.tile.x][player.position.tile.y] = -(pnum + 1);
-	dPlayer[player.position.future.x][player.position.future.y] = -(pnum + 1);
-	player._pVar4 = nextPosition.x;
-	player._pVar5 = nextPosition.y;
-	dFlags[nextPosition.x][nextPosition.y] |= BFLAG_PLAYERLR;
+	dPlayer[player.position.future.x][player.position.future.y] = pnum + 1;
 
 	if (leveltype != DTYPE_TOWN) {
 		ChangeLightXY(player._plid, nextPosition);
@@ -282,47 +281,46 @@ void WalkSides(int pnum, const DirectionSettings &walkParams)
 
 _sfx_id herosounds[enum_size<HeroClass>::value][enum_size<HeroSpeech>::value] = {
 	// clang-format off
-	{ PS_WARR1,  PS_WARR2,  PS_WARR3,  PS_WARR4,  PS_WARR5,  PS_WARR6,  PS_WARR7,  PS_WARR8,  PS_WARR9,  PS_WARR10,  PS_WARR11,  PS_WARR12,  PS_WARR13,  PS_WARR14,  PS_WARR15,  PS_WARR16,  PS_WARR17,  PS_WARR18,  PS_WARR19,  PS_WARR20,  PS_WARR21,  PS_WARR22,  PS_WARR23,  PS_WARR24,  PS_WARR25,  PS_WARR26,  PS_WARR27,  PS_WARR28,  PS_WARR29,  PS_WARR30,  PS_WARR31,  PS_WARR32,  PS_WARR33,  PS_WARR34,  PS_WARR35,  PS_WARR36,  PS_WARR37,  PS_WARR38,  PS_WARR39,  PS_WARR40,  PS_WARR41,  PS_WARR42,  PS_WARR43,  PS_WARR44,  PS_WARR45,  PS_WARR46,  PS_WARR47,  PS_WARR48,  PS_WARR49,  PS_WARR50,  PS_WARR51,  PS_WARR52,  PS_WARR53,  PS_WARR54,  PS_WARR55,  PS_WARR56,  PS_WARR57,  PS_WARR58,  PS_WARR59,  PS_WARR60,  PS_WARR61,  PS_WARR62,  PS_WARR63,  PS_WARR64,  PS_WARR65,  PS_WARR66,  PS_WARR67,  PS_WARR68,  PS_WARR69,  PS_WARR70,  PS_WARR71,  PS_WARR72,  PS_WARR73,  PS_WARR74,  PS_WARR75,  PS_WARR76,  PS_WARR77,  PS_WARR78,  PS_WARR79,  PS_WARR80,  PS_WARR81,  PS_WARR82,  PS_WARR83,  PS_WARR84,  PS_WARR85,  PS_WARR86,  PS_WARR87,  PS_WARR88,  PS_WARR89,  PS_WARR90,  PS_WARR91,  PS_WARR92,  PS_WARR93,  PS_WARR94,  PS_WARR95,  PS_WARR96B,  PS_WARR97,  PS_WARR98,  PS_WARR99,  PS_WARR100,  PS_WARR101,  PS_WARR102  },
-	{ PS_ROGUE1, PS_ROGUE2, PS_ROGUE3, PS_ROGUE4, PS_ROGUE5, PS_ROGUE6, PS_ROGUE7, PS_ROGUE8, PS_ROGUE9, PS_ROGUE10, PS_ROGUE11, PS_ROGUE12, PS_ROGUE13, PS_ROGUE14, PS_ROGUE15, PS_ROGUE16, PS_ROGUE17, PS_ROGUE18, PS_ROGUE19, PS_ROGUE20, PS_ROGUE21, PS_ROGUE22, PS_ROGUE23, PS_ROGUE24, PS_ROGUE25, PS_ROGUE26, PS_ROGUE27, PS_ROGUE28, PS_ROGUE29, PS_ROGUE30, PS_ROGUE31, PS_ROGUE32, PS_ROGUE33, PS_ROGUE34, PS_ROGUE35, PS_ROGUE36, PS_ROGUE37, PS_ROGUE38, PS_ROGUE39, PS_ROGUE40, PS_ROGUE41, PS_ROGUE42, PS_ROGUE43, PS_ROGUE44, PS_ROGUE45, PS_ROGUE46, PS_ROGUE47, PS_ROGUE48, PS_ROGUE49, PS_ROGUE50, PS_ROGUE51, PS_ROGUE52, PS_ROGUE53, PS_ROGUE54, PS_ROGUE55, PS_ROGUE56, PS_ROGUE57, PS_ROGUE58, PS_ROGUE59, PS_ROGUE60, PS_ROGUE61, PS_ROGUE62, PS_ROGUE63, PS_ROGUE64, PS_ROGUE65, PS_ROGUE66, PS_ROGUE67, PS_ROGUE68, PS_ROGUE69, PS_ROGUE70, PS_ROGUE71, PS_ROGUE72, PS_ROGUE73, PS_ROGUE74, PS_ROGUE75, PS_ROGUE76, PS_ROGUE77, PS_ROGUE78, PS_ROGUE79, PS_ROGUE80, PS_ROGUE81, PS_ROGUE82, PS_ROGUE83, PS_ROGUE84, PS_ROGUE85, PS_ROGUE86, PS_ROGUE87, PS_ROGUE88, PS_ROGUE89, PS_ROGUE90, PS_ROGUE91, PS_ROGUE92, PS_ROGUE93, PS_ROGUE94, PS_ROGUE95, PS_ROGUE96,  PS_ROGUE97, PS_ROGUE98, PS_ROGUE99, PS_ROGUE100, PS_ROGUE101, PS_ROGUE102 },
-	{ PS_MAGE1,  PS_MAGE2,  PS_MAGE3,  PS_MAGE4,  PS_MAGE5,  PS_MAGE6,  PS_MAGE7,  PS_MAGE8,  PS_MAGE9,  PS_MAGE10,  PS_MAGE11,  PS_MAGE12,  PS_MAGE13,  PS_MAGE14,  PS_MAGE15,  PS_MAGE16,  PS_MAGE17,  PS_MAGE18,  PS_MAGE19,  PS_MAGE20,  PS_MAGE21,  PS_MAGE22,  PS_MAGE23,  PS_MAGE24,  PS_MAGE25,  PS_MAGE26,  PS_MAGE27,  PS_MAGE28,  PS_MAGE29,  PS_MAGE30,  PS_MAGE31,  PS_MAGE32,  PS_MAGE33,  PS_MAGE34,  PS_MAGE35,  PS_MAGE36,  PS_MAGE37,  PS_MAGE38,  PS_MAGE39,  PS_MAGE40,  PS_MAGE41,  PS_MAGE42,  PS_MAGE43,  PS_MAGE44,  PS_MAGE45,  PS_MAGE46,  PS_MAGE47,  PS_MAGE48,  PS_MAGE49,  PS_MAGE50,  PS_MAGE51,  PS_MAGE52,  PS_MAGE53,  PS_MAGE54,  PS_MAGE55,  PS_MAGE56,  PS_MAGE57,  PS_MAGE58,  PS_MAGE59,  PS_MAGE60,  PS_MAGE61,  PS_MAGE62,  PS_MAGE63,  PS_MAGE64,  PS_MAGE65,  PS_MAGE66,  PS_MAGE67,  PS_MAGE68,  PS_MAGE69,  PS_MAGE70,  PS_MAGE71,  PS_MAGE72,  PS_MAGE73,  PS_MAGE74,  PS_MAGE75,  PS_MAGE76,  PS_MAGE77,  PS_MAGE78,  PS_MAGE79,  PS_MAGE80,  PS_MAGE81,  PS_MAGE82,  PS_MAGE83,  PS_MAGE84,  PS_MAGE85,  PS_MAGE86,  PS_MAGE87,  PS_MAGE88,  PS_MAGE89,  PS_MAGE90,  PS_MAGE91,  PS_MAGE92,  PS_MAGE93,  PS_MAGE94,  PS_MAGE95,  PS_MAGE96,   PS_MAGE97,  PS_MAGE98,  PS_MAGE99,  PS_MAGE100,  PS_MAGE101,  PS_MAGE102  },
-	{ PS_MONK1,  PS_MONK2,  PS_MONK3,  PS_MONK4,  PS_MONK5,  PS_MONK6,  PS_MONK7,  PS_MONK8,  PS_MONK9,  PS_MONK10,  PS_MONK11,  PS_MONK12,  PS_MONK13,  PS_MONK14,  PS_MONK15,  PS_MONK16,  PS_MONK17,  PS_MONK18,  PS_MONK19,  PS_MONK20,  PS_MONK21,  PS_MONK22,  PS_MONK23,  PS_MONK24,  PS_MONK25,  PS_MONK26,  PS_MONK27,  PS_MONK28,  PS_MONK29,  PS_MONK30,  PS_MONK31,  PS_MONK32,  PS_MONK33,  PS_MONK34,  PS_MONK35,  PS_MONK36,  PS_MONK37,  PS_MONK38,  PS_MONK39,  PS_MONK40,  PS_MONK41,  PS_MONK42,  PS_MONK43,  PS_MONK44,  PS_MONK45,  PS_MONK46,  PS_MONK47,  PS_MONK48,  PS_MONK49,  PS_MONK50,  PS_MONK51,  PS_MONK52,  PS_MONK53,  PS_MONK54,  PS_MONK55,  PS_MONK56,  PS_MONK57,  PS_MONK58,  PS_MONK59,  PS_MONK60,  PS_MONK61,  PS_MONK62,  PS_MONK63,  PS_MONK64,  PS_MONK65,  PS_MONK66,  PS_MONK67,  PS_MONK68,  PS_MONK69,  PS_MONK70,  PS_MONK71,  PS_MONK72,  PS_MONK73,  PS_MONK74,  PS_MONK75,  PS_MONK76,  PS_MONK77,  PS_MONK78,  PS_MONK79,  PS_MONK80,  PS_MONK81,  PS_MONK82,  PS_MONK83,  PS_MONK84,  PS_MONK85,  PS_MONK86,  PS_MONK87,  PS_MONK88,  PS_MONK89,  PS_MONK90,  PS_MONK91,  PS_MONK92,  PS_MONK93,  PS_MONK94,  PS_MONK95,  PS_MONK96,   PS_MONK97,  PS_MONK98,  PS_MONK99,  PS_MONK100,  PS_MONK101,  PS_MONK102  },
-	{ PS_ROGUE1, PS_ROGUE2, PS_ROGUE3, PS_ROGUE4, PS_ROGUE5, PS_ROGUE6, PS_ROGUE7, PS_ROGUE8, PS_ROGUE9, PS_ROGUE10, PS_ROGUE11, PS_ROGUE12, PS_ROGUE13, PS_ROGUE14, PS_ROGUE15, PS_ROGUE16, PS_ROGUE17, PS_ROGUE18, PS_ROGUE19, PS_ROGUE20, PS_ROGUE21, PS_ROGUE22, PS_ROGUE23, PS_ROGUE24, PS_ROGUE25, PS_ROGUE26, PS_ROGUE27, PS_ROGUE28, PS_ROGUE29, PS_ROGUE30, PS_ROGUE31, PS_ROGUE32, PS_ROGUE33, PS_ROGUE34, PS_ROGUE35, PS_ROGUE36, PS_ROGUE37, PS_ROGUE38, PS_ROGUE39, PS_ROGUE40, PS_ROGUE41, PS_ROGUE42, PS_ROGUE43, PS_ROGUE44, PS_ROGUE45, PS_ROGUE46, PS_ROGUE47, PS_ROGUE48, PS_ROGUE49, PS_ROGUE50, PS_ROGUE51, PS_ROGUE52, PS_ROGUE53, PS_ROGUE54, PS_ROGUE55, PS_ROGUE56, PS_ROGUE57, PS_ROGUE58, PS_ROGUE59, PS_ROGUE60, PS_ROGUE61, PS_ROGUE62, PS_ROGUE63, PS_ROGUE64, PS_ROGUE65, PS_ROGUE66, PS_ROGUE67, PS_ROGUE68, PS_ROGUE69, PS_ROGUE70, PS_ROGUE71, PS_ROGUE72, PS_ROGUE73, PS_ROGUE74, PS_ROGUE75, PS_ROGUE76, PS_ROGUE77, PS_ROGUE78, PS_ROGUE79, PS_ROGUE80, PS_ROGUE81, PS_ROGUE82, PS_ROGUE83, PS_ROGUE84, PS_ROGUE85, PS_ROGUE86, PS_ROGUE87, PS_ROGUE88, PS_ROGUE89, PS_ROGUE90, PS_ROGUE91, PS_ROGUE92, PS_ROGUE93, PS_ROGUE94, PS_ROGUE95, PS_ROGUE96,  PS_ROGUE97, PS_ROGUE98, PS_ROGUE99, PS_ROGUE100, PS_ROGUE101, PS_ROGUE102 },
-	{ PS_WARR1,  PS_WARR2,  PS_WARR3,  PS_WARR4,  PS_WARR5,  PS_WARR6,  PS_WARR7,  PS_WARR8,  PS_WARR9,  PS_WARR10,  PS_WARR11,  PS_WARR12,  PS_WARR13,  PS_WARR14,  PS_WARR15,  PS_WARR16,  PS_WARR17,  PS_WARR18,  PS_WARR19,  PS_WARR20,  PS_WARR21,  PS_WARR22,  PS_WARR23,  PS_WARR24,  PS_WARR25,  PS_WARR26,  PS_WARR27,  PS_WARR28,  PS_WARR29,  PS_WARR30,  PS_WARR31,  PS_WARR32,  PS_WARR33,  PS_WARR34,  PS_WARR35,  PS_WARR36,  PS_WARR37,  PS_WARR38,  PS_WARR39,  PS_WARR40,  PS_WARR41,  PS_WARR42,  PS_WARR43,  PS_WARR44,  PS_WARR45,  PS_WARR46,  PS_WARR47,  PS_WARR48,  PS_WARR49,  PS_WARR50,  PS_WARR51,  PS_WARR52,  PS_WARR53,  PS_WARR54,  PS_WARR55,  PS_WARR56,  PS_WARR57,  PS_WARR58,  PS_WARR59,  PS_WARR60,  PS_WARR61,  PS_WARR62,  PS_WARR63,  PS_WARR64,  PS_WARR65,  PS_WARR66,  PS_WARR67,  PS_WARR68,  PS_WARR69,  PS_WARR70,  PS_WARR71,  PS_WARR72,  PS_WARR73,  PS_WARR74,  PS_WARR75,  PS_WARR76,  PS_WARR77,  PS_WARR78,  PS_WARR79,  PS_WARR80,  PS_WARR81,  PS_WARR82,  PS_WARR83,  PS_WARR84,  PS_WARR85,  PS_WARR86,  PS_WARR87,  PS_WARR88,  PS_WARR89,  PS_WARR90,  PS_WARR91,  PS_WARR92,  PS_WARR93,  PS_WARR94,  PS_WARR95,  PS_WARR96B,  PS_WARR97,  PS_WARR98,  PS_WARR99,  PS_WARR100,  PS_WARR101,  PS_WARR102  },
+	{ PS_WARR1,  PS_WARR2,  PS_WARR3,  PS_WARR4,  PS_WARR5,  PS_WARR6,  PS_WARR7,  PS_WARR8,  PS_WARR9,  PS_WARR10,  PS_WARR11,  PS_WARR12,  PS_WARR13,  PS_WARR14,  PS_WARR15,  PS_WARR16,  PS_WARR17,  PS_WARR18,  PS_WARR19,  PS_WARR20,  PS_WARR21,  PS_WARR22,  PS_WARR23,  PS_WARR24,  PS_WARR25,  PS_WARR26,  PS_WARR27,  PS_WARR28,  PS_WARR29,  PS_WARR30,  PS_WARR31,  PS_WARR32,  PS_WARR33,  PS_WARR34,  PS_WARR35,  PS_WARR36,  PS_WARR37,  PS_WARR38,  PS_WARR39,  PS_WARR40,  PS_WARR41,  PS_WARR42,  PS_WARR43,  PS_WARR44,  PS_WARR45,  PS_WARR46,  PS_WARR47,  PS_WARR48,  PS_WARR49,  PS_WARR50,  PS_WARR51,  PS_WARR52,  PS_WARR53,  PS_WARR54,  PS_WARR55,  PS_WARR56,  PS_WARR57,  PS_WARR58,  PS_WARR59,  PS_WARR60,  PS_WARR61,  PS_WARR62,  PS_WARR63,  PS_WARR64,  PS_WARR65,  PS_WARR66,  PS_WARR67,  PS_WARR68,  PS_WARR69,  PS_WARR70,  PS_WARR71,  PS_WARR72,  PS_WARR73,  PS_WARR74,  PS_WARR75,  PS_WARR76,  PS_WARR77,  PS_WARR78,  PS_WARR79,  PS_WARR80,  PS_WARR81,  PS_WARR82,  PS_WARR83,  PS_WARR84,  PS_WARR85,  PS_WARR86,  PS_WARR87,  PS_WARR88,  PS_WARR89,  PS_WARR90,  PS_WARR91,  PS_WARR92,  PS_WARR93,  PS_WARR94,  PS_WARR95,  PS_WARR96B,  PS_WARR97,  PS_WARR98,  PS_WARR99,  PS_WARR100,  PS_WARR101,  PS_WARR102,  PS_DEAD    },
+	{ PS_ROGUE1, PS_ROGUE2, PS_ROGUE3, PS_ROGUE4, PS_ROGUE5, PS_ROGUE6, PS_ROGUE7, PS_ROGUE8, PS_ROGUE9, PS_ROGUE10, PS_ROGUE11, PS_ROGUE12, PS_ROGUE13, PS_ROGUE14, PS_ROGUE15, PS_ROGUE16, PS_ROGUE17, PS_ROGUE18, PS_ROGUE19, PS_ROGUE20, PS_ROGUE21, PS_ROGUE22, PS_ROGUE23, PS_ROGUE24, PS_ROGUE25, PS_ROGUE26, PS_ROGUE27, PS_ROGUE28, PS_ROGUE29, PS_ROGUE30, PS_ROGUE31, PS_ROGUE32, PS_ROGUE33, PS_ROGUE34, PS_ROGUE35, PS_ROGUE36, PS_ROGUE37, PS_ROGUE38, PS_ROGUE39, PS_ROGUE40, PS_ROGUE41, PS_ROGUE42, PS_ROGUE43, PS_ROGUE44, PS_ROGUE45, PS_ROGUE46, PS_ROGUE47, PS_ROGUE48, PS_ROGUE49, PS_ROGUE50, PS_ROGUE51, PS_ROGUE52, PS_ROGUE53, PS_ROGUE54, PS_ROGUE55, PS_ROGUE56, PS_ROGUE57, PS_ROGUE58, PS_ROGUE59, PS_ROGUE60, PS_ROGUE61, PS_ROGUE62, PS_ROGUE63, PS_ROGUE64, PS_ROGUE65, PS_ROGUE66, PS_ROGUE67, PS_ROGUE68, PS_ROGUE69, PS_ROGUE70, PS_ROGUE71, PS_ROGUE72, PS_ROGUE73, PS_ROGUE74, PS_ROGUE75, PS_ROGUE76, PS_ROGUE77, PS_ROGUE78, PS_ROGUE79, PS_ROGUE80, PS_ROGUE81, PS_ROGUE82, PS_ROGUE83, PS_ROGUE84, PS_ROGUE85, PS_ROGUE86, PS_ROGUE87, PS_ROGUE88, PS_ROGUE89, PS_ROGUE90, PS_ROGUE91, PS_ROGUE92, PS_ROGUE93, PS_ROGUE94, PS_ROGUE95, PS_ROGUE96,  PS_ROGUE97, PS_ROGUE98, PS_ROGUE99, PS_ROGUE100, PS_ROGUE101, PS_ROGUE102, PS_ROGUE71 },
+	{ PS_MAGE1,  PS_MAGE2,  PS_MAGE3,  PS_MAGE4,  PS_MAGE5,  PS_MAGE6,  PS_MAGE7,  PS_MAGE8,  PS_MAGE9,  PS_MAGE10,  PS_MAGE11,  PS_MAGE12,  PS_MAGE13,  PS_MAGE14,  PS_MAGE15,  PS_MAGE16,  PS_MAGE17,  PS_MAGE18,  PS_MAGE19,  PS_MAGE20,  PS_MAGE21,  PS_MAGE22,  PS_MAGE23,  PS_MAGE24,  PS_MAGE25,  PS_MAGE26,  PS_MAGE27,  PS_MAGE28,  PS_MAGE29,  PS_MAGE30,  PS_MAGE31,  PS_MAGE32,  PS_MAGE33,  PS_MAGE34,  PS_MAGE35,  PS_MAGE36,  PS_MAGE37,  PS_MAGE38,  PS_MAGE39,  PS_MAGE40,  PS_MAGE41,  PS_MAGE42,  PS_MAGE43,  PS_MAGE44,  PS_MAGE45,  PS_MAGE46,  PS_MAGE47,  PS_MAGE48,  PS_MAGE49,  PS_MAGE50,  PS_MAGE51,  PS_MAGE52,  PS_MAGE53,  PS_MAGE54,  PS_MAGE55,  PS_MAGE56,  PS_MAGE57,  PS_MAGE58,  PS_MAGE59,  PS_MAGE60,  PS_MAGE61,  PS_MAGE62,  PS_MAGE63,  PS_MAGE64,  PS_MAGE65,  PS_MAGE66,  PS_MAGE67,  PS_MAGE68,  PS_MAGE69,  PS_MAGE70,  PS_MAGE71,  PS_MAGE72,  PS_MAGE73,  PS_MAGE74,  PS_MAGE75,  PS_MAGE76,  PS_MAGE77,  PS_MAGE78,  PS_MAGE79,  PS_MAGE80,  PS_MAGE81,  PS_MAGE82,  PS_MAGE83,  PS_MAGE84,  PS_MAGE85,  PS_MAGE86,  PS_MAGE87,  PS_MAGE88,  PS_MAGE89,  PS_MAGE90,  PS_MAGE91,  PS_MAGE92,  PS_MAGE93,  PS_MAGE94,  PS_MAGE95,  PS_MAGE96,   PS_MAGE97,  PS_MAGE98,  PS_MAGE99,  PS_MAGE100,  PS_MAGE101,  PS_MAGE102,  PS_MAGE71  },
+	{ PS_MONK1,  PS_MONK2,  PS_MONK3,  PS_MONK4,  PS_MONK5,  PS_MONK6,  PS_MONK7,  PS_MONK8,  PS_MONK9,  PS_MONK10,  PS_MONK11,  PS_MONK12,  PS_MONK13,  PS_MONK14,  PS_MONK15,  PS_MONK16,  PS_MONK17,  PS_MONK18,  PS_MONK19,  PS_MONK20,  PS_MONK21,  PS_MONK22,  PS_MONK23,  PS_MONK24,  PS_MONK25,  PS_MONK26,  PS_MONK27,  PS_MONK28,  PS_MONK29,  PS_MONK30,  PS_MONK31,  PS_MONK32,  PS_MONK33,  PS_MONK34,  PS_MONK35,  PS_MONK36,  PS_MONK37,  PS_MONK38,  PS_MONK39,  PS_MONK40,  PS_MONK41,  PS_MONK42,  PS_MONK43,  PS_MONK44,  PS_MONK45,  PS_MONK46,  PS_MONK47,  PS_MONK48,  PS_MONK49,  PS_MONK50,  PS_MONK51,  PS_MONK52,  PS_MONK53,  PS_MONK54,  PS_MONK55,  PS_MONK56,  PS_MONK57,  PS_MONK58,  PS_MONK59,  PS_MONK60,  PS_MONK61,  PS_MONK62,  PS_MONK63,  PS_MONK64,  PS_MONK65,  PS_MONK66,  PS_MONK67,  PS_MONK68,  PS_MONK69,  PS_MONK70,  PS_MONK71,  PS_MONK72,  PS_MONK73,  PS_MONK74,  PS_MONK75,  PS_MONK76,  PS_MONK77,  PS_MONK78,  PS_MONK79,  PS_MONK80,  PS_MONK81,  PS_MONK82,  PS_MONK83,  PS_MONK84,  PS_MONK85,  PS_MONK86,  PS_MONK87,  PS_MONK88,  PS_MONK89,  PS_MONK90,  PS_MONK91,  PS_MONK92,  PS_MONK93,  PS_MONK94,  PS_MONK95,  PS_MONK96,   PS_MONK97,  PS_MONK98,  PS_MONK99,  PS_MONK100,  PS_MONK101,  PS_MONK102,  PS_MONK71  },
+	{ PS_ROGUE1, PS_ROGUE2, PS_ROGUE3, PS_ROGUE4, PS_ROGUE5, PS_ROGUE6, PS_ROGUE7, PS_ROGUE8, PS_ROGUE9, PS_ROGUE10, PS_ROGUE11, PS_ROGUE12, PS_ROGUE13, PS_ROGUE14, PS_ROGUE15, PS_ROGUE16, PS_ROGUE17, PS_ROGUE18, PS_ROGUE19, PS_ROGUE20, PS_ROGUE21, PS_ROGUE22, PS_ROGUE23, PS_ROGUE24, PS_ROGUE25, PS_ROGUE26, PS_ROGUE27, PS_ROGUE28, PS_ROGUE29, PS_ROGUE30, PS_ROGUE31, PS_ROGUE32, PS_ROGUE33, PS_ROGUE34, PS_ROGUE35, PS_ROGUE36, PS_ROGUE37, PS_ROGUE38, PS_ROGUE39, PS_ROGUE40, PS_ROGUE41, PS_ROGUE42, PS_ROGUE43, PS_ROGUE44, PS_ROGUE45, PS_ROGUE46, PS_ROGUE47, PS_ROGUE48, PS_ROGUE49, PS_ROGUE50, PS_ROGUE51, PS_ROGUE52, PS_ROGUE53, PS_ROGUE54, PS_ROGUE55, PS_ROGUE56, PS_ROGUE57, PS_ROGUE58, PS_ROGUE59, PS_ROGUE60, PS_ROGUE61, PS_ROGUE62, PS_ROGUE63, PS_ROGUE64, PS_ROGUE65, PS_ROGUE66, PS_ROGUE67, PS_ROGUE68, PS_ROGUE69, PS_ROGUE70, PS_ROGUE71, PS_ROGUE72, PS_ROGUE73, PS_ROGUE74, PS_ROGUE75, PS_ROGUE76, PS_ROGUE77, PS_ROGUE78, PS_ROGUE79, PS_ROGUE80, PS_ROGUE81, PS_ROGUE82, PS_ROGUE83, PS_ROGUE84, PS_ROGUE85, PS_ROGUE86, PS_ROGUE87, PS_ROGUE88, PS_ROGUE89, PS_ROGUE90, PS_ROGUE91, PS_ROGUE92, PS_ROGUE93, PS_ROGUE94, PS_ROGUE95, PS_ROGUE96,  PS_ROGUE97, PS_ROGUE98, PS_ROGUE99, PS_ROGUE100, PS_ROGUE101, PS_ROGUE102, PS_ROGUE71 },
+	{ PS_WARR1,  PS_WARR2,  PS_WARR3,  PS_WARR4,  PS_WARR5,  PS_WARR6,  PS_WARR7,  PS_WARR8,  PS_WARR9,  PS_WARR10,  PS_WARR11,  PS_WARR12,  PS_WARR13,  PS_WARR14,  PS_WARR15,  PS_WARR16,  PS_WARR17,  PS_WARR18,  PS_WARR19,  PS_WARR20,  PS_WARR21,  PS_WARR22,  PS_WARR23,  PS_WARR24,  PS_WARR25,  PS_WARR26,  PS_WARR27,  PS_WARR28,  PS_WARR29,  PS_WARR30,  PS_WARR31,  PS_WARR32,  PS_WARR33,  PS_WARR34,  PS_WARR35,  PS_WARR36,  PS_WARR37,  PS_WARR38,  PS_WARR39,  PS_WARR40,  PS_WARR41,  PS_WARR42,  PS_WARR43,  PS_WARR44,  PS_WARR45,  PS_WARR46,  PS_WARR47,  PS_WARR48,  PS_WARR49,  PS_WARR50,  PS_WARR51,  PS_WARR52,  PS_WARR53,  PS_WARR54,  PS_WARR55,  PS_WARR56,  PS_WARR57,  PS_WARR58,  PS_WARR59,  PS_WARR60,  PS_WARR61,  PS_WARR62,  PS_WARR63,  PS_WARR64,  PS_WARR65,  PS_WARR66,  PS_WARR67,  PS_WARR68,  PS_WARR69,  PS_WARR70,  PS_WARR71,  PS_WARR72,  PS_WARR73,  PS_WARR74,  PS_WARR75,  PS_WARR76,  PS_WARR77,  PS_WARR78,  PS_WARR79,  PS_WARR80,  PS_WARR81,  PS_WARR82,  PS_WARR83,  PS_WARR84,  PS_WARR85,  PS_WARR86,  PS_WARR87,  PS_WARR88,  PS_WARR89,  PS_WARR90,  PS_WARR91,  PS_WARR92,  PS_WARR93,  PS_WARR94,  PS_WARR95,  PS_WARR96B,  PS_WARR97,  PS_WARR98,  PS_WARR99,  PS_WARR100,  PS_WARR101,  PS_WARR102,  PS_WARR71  },
 	// clang-format on
 };
 
 constexpr std::array<const DirectionSettings, 8> WalkSettings { {
 	// clang-format off
-	{ DIR_S,  {  1,  1 }, {   0, -32 }, { 0, 0 }, SDIR_S,  PM_WALK2, WalkDownwards },
-	{ DIR_SW, {  0,  1 }, {  32, -16 }, { 0, 0 }, SDIR_SW, PM_WALK2, WalkDownwards },
-	{ DIR_W,  { -1,  1 }, {  32, -16 }, { 0, 1 }, SDIR_W,  PM_WALK3, WalkSides     },
-	{ DIR_NW, { -1,  0 }, {   0,   0 }, { 0, 0 }, SDIR_NW, PM_WALK,  WalkUpwards   },
-	{ DIR_N,  { -1, -1 }, {   0,   0 }, { 0, 0 }, SDIR_N,  PM_WALK,  WalkUpwards   },
-	{ DIR_NE, {  0, -1 }, {   0,   0 }, { 0, 0 }, SDIR_NE, PM_WALK,  WalkUpwards   },
-	{ DIR_E,  {  1, -1 }, { -32, -16 }, { 1, 0 }, SDIR_E,  PM_WALK3, WalkSides     },
-	{ DIR_SE, {  1,  0 }, { -32, -16 }, { 0, 0 }, SDIR_SE, PM_WALK2, WalkDownwards }
+	{ Direction::South,     {  1,  1 }, {   0, -32 }, { 0, 0 }, ScrollDirection::South,     PM_WALK2, WalkDownwards },
+	{ Direction::SouthWest, {  0,  1 }, {  32, -16 }, { 0, 0 }, ScrollDirection::SouthWest, PM_WALK2, WalkDownwards },
+	{ Direction::West,      { -1,  1 }, {  32, -16 }, { 0, 1 }, ScrollDirection::West,      PM_WALK3, WalkSides     },
+	{ Direction::NorthWest, { -1,  0 }, {   0,   0 }, { 0, 0 }, ScrollDirection::NorthWest, PM_WALK,  WalkUpwards   },
+	{ Direction::North,     { -1, -1 }, {   0,   0 }, { 0, 0 }, ScrollDirection::North,     PM_WALK,  WalkUpwards   },
+	{ Direction::NorthEast, {  0, -1 }, {   0,   0 }, { 0, 0 }, ScrollDirection::NorthEast, PM_WALK,  WalkUpwards   },
+	{ Direction::East,      {  1, -1 }, { -32, -16 }, { 1, 0 }, ScrollDirection::East,      PM_WALK3, WalkSides     },
+	{ Direction::SouthEast, {  1,  0 }, { -32, -16 }, { 0, 0 }, ScrollDirection::SouthEast, PM_WALK2, WalkDownwards }
 	// clang-format on
 } };
 
-void ScrollViewPort(const PlayerStruct &player, _scroll_direction dir)
+void ScrollViewPort(const Player &player, ScrollDirection dir)
 {
-	ScrollInfo.tile.x = player.position.tile.x - ViewX;
-	ScrollInfo.tile.y = player.position.tile.y - ViewY;
+	ScrollInfo.tile = Point { 0, 0 } + (player.position.tile - ViewPosition);
 
 	if (zoomflag) {
 		if (abs(ScrollInfo.tile.x) >= 3 || abs(ScrollInfo.tile.y) >= 3) {
-			ScrollInfo._sdir = SDIR_NONE;
+			ScrollInfo._sdir = ScrollDirection::None;
 		} else {
 			ScrollInfo._sdir = dir;
 		}
 	} else if (abs(ScrollInfo.tile.x) >= 2 || abs(ScrollInfo.tile.y) >= 2) {
-		ScrollInfo._sdir = SDIR_NONE;
+		ScrollInfo._sdir = ScrollDirection::None;
 	} else {
 		ScrollInfo._sdir = dir;
 	}
 }
 
-bool PlrDirOK(const PlayerStruct &player, Direction dir)
+bool PlrDirOK(const Player &player, Direction dir)
 {
 	Point position = player.position.tile;
 	Point futurePosition = position + dir;
@@ -330,12 +328,12 @@ bool PlrDirOK(const PlayerStruct &player, Direction dir)
 		return false;
 	}
 
-	if (dir == DIR_E) {
-		return !IsTileSolid(position + DIR_SE) && (dFlags[position.x + 1][position.y] & BFLAG_PLAYERLR) == 0;
+	if (dir == Direction::East) {
+		return !IsTileSolid(position + Direction::SouthEast);
 	}
 
-	if (dir == DIR_W) {
-		return !IsTileSolid(position + DIR_SW) && (dFlags[position.x][position.y + 1] & BFLAG_PLAYERLR) == 0;
+	if (dir == Direction::West) {
+		return !IsTileSolid(position + Direction::SouthWest);
 	}
 
 	return true;
@@ -344,7 +342,7 @@ bool PlrDirOK(const PlayerStruct &player, Direction dir)
 void HandleWalkMode(int pnum, Displacement vel, Direction dir)
 {
 	auto &player = Players[pnum];
-	const auto &dirModeParams = WalkSettings[dir];
+	const auto &dirModeParams = WalkSettings[static_cast<size_t>(dir)];
 	SetPlayerOld(player);
 	if (!PlrDirOK(player, dir)) {
 		return;
@@ -355,7 +353,7 @@ void HandleWalkMode(int pnum, Displacement vel, Direction dir)
 	player.position.future = player.position.tile + dirModeParams.tileAdd;
 
 	if (pnum == MyPlayerId) {
-		ScrollViewPort(player, WalkSettings[dir].scrollDir);
+		ScrollViewPort(player, dirModeParams.scrollDir);
 	}
 
 	dirModeParams.walkModeHandler(pnum, dirModeParams);
@@ -368,7 +366,7 @@ void HandleWalkMode(int pnum, Displacement vel, Direction dir)
 	player._pdir = dir;
 }
 
-void StartWalkAnimation(PlayerStruct &player, Direction dir, bool pmWillBeCalled)
+void StartWalkAnimation(Player &player, Direction dir, bool pmWillBeCalled)
 {
 	int skippedFrames = -2;
 	if (currlevel == 0 && sgGameInitInfo.bRunInTown != 0)
@@ -398,6 +396,8 @@ void SetPlayerGPtrs(const char *path, std::unique_ptr<byte[]> &data, std::array<
 {
 	data = nullptr;
 	data = LoadFileInMem(path);
+	if (data == nullptr && gbQuietMode)
+		return;
 
 	for (int i = 0; i < 8; i++) {
 		byte *pCelStart = CelGetFrame(data.get(), i);
@@ -405,12 +405,11 @@ void SetPlayerGPtrs(const char *path, std::unique_ptr<byte[]> &data, std::array<
 	}
 }
 
-void ClearStateVariables(PlayerStruct &player)
+void ClearStateVariables(Player &player)
 {
 	player.position.temp = { 0, 0 };
-	player.tempDirection = DIR_S;
-	player._pVar4 = 0;
-	player._pVar5 = 0;
+	player.tempDirection = Direction::South;
+	player.spellLevel = 0;
 	player.position.offset2 = { 0, 0 };
 	player.deathFrame = 0;
 }
@@ -428,9 +427,8 @@ void StartWalkStand(int pnum)
 
 	if (pnum == MyPlayerId) {
 		ScrollInfo.offset = { 0, 0 };
-		ScrollInfo._sdir = SDIR_NONE;
-		ViewX = player.position.tile.x;
-		ViewY = player.position.tile.y;
+		ScrollInfo._sdir = ScrollDirection::None;
+		ViewPosition = player.position.tile;
 	}
 }
 
@@ -455,7 +453,7 @@ void ChangeOffset(int pnum)
 	px -= player.position.offset2.deltaX >> 8;
 	py -= player.position.offset2.deltaY >> 8;
 
-	if (pnum == MyPlayerId && ScrollInfo._sdir != SDIR_NONE) {
+	if (pnum == MyPlayerId && ScrollInfo._sdir != ScrollDirection::None) {
 		ScrollInfo.offset += { px, py };
 	}
 
@@ -565,10 +563,10 @@ void StartSpell(int pnum, Direction d, int cx, int cy)
 	SetPlayerOld(player);
 
 	player.position.temp = { cx, cy };
-	player._pVar4 = GetSpellLevel(pnum, player._pSpell);
+	player.spellLevel = GetSpellLevel(pnum, player._pSpell);
 }
 
-void RespawnDeadItem(ItemStruct *itm, Point target)
+void RespawnDeadItem(Item *itm, Point target)
 {
 	if (ActiveItemCount >= MAXITEMS)
 		return;
@@ -581,10 +579,10 @@ void RespawnDeadItem(ItemStruct *itm, Point target)
 	Items[ii].position = target;
 	RespawnItem(&Items[ii], true);
 
-	itm->_itype = ITYPE_NONE;
+	itm->_itype = ItemType::None;
 }
 
-void DeadItem(PlayerStruct &player, ItemStruct *itm, Displacement direction)
+void DeadItem(Player &player, Item *itm, Displacement direction)
 {
 	if (itm->isEmpty())
 		return;
@@ -619,14 +617,14 @@ int DropGold(int pnum, int amount, bool skipFullStacks)
 	for (int i = 0; i < player._pNumInv && amount > 0; i++) {
 		auto &item = player.InvList[i];
 
-		if (item._itype != ITYPE_GOLD || (skipFullStacks && item._ivalue == MaxGold))
+		if (item._itype != ItemType::Gold || (skipFullStacks && item._ivalue == MaxGold))
 			continue;
 
 		if (amount < item._ivalue) {
 			item._ivalue -= amount;
-			SetPlrHandItem(&player.HoldItem, IDI_GOLD);
-			GetGoldSeed(pnum, &player.HoldItem);
-			SetPlrHandGoldCurs(&player.HoldItem);
+			SetPlrHandItem(player.HoldItem, IDI_GOLD);
+			SetGoldSeed(player, player.HoldItem);
+			SetPlrHandGoldCurs(player.HoldItem);
 			player.HoldItem._ivalue = amount;
 			DeadItem(player, &player.HoldItem, { 0, 0 });
 			return 0;
@@ -634,9 +632,9 @@ int DropGold(int pnum, int amount, bool skipFullStacks)
 
 		amount -= item._ivalue;
 		player.RemoveInvItem(i);
-		SetPlrHandItem(&player.HoldItem, IDI_GOLD);
-		GetGoldSeed(pnum, &player.HoldItem);
-		SetPlrHandGoldCurs(&player.HoldItem);
+		SetPlrHandItem(player.HoldItem, IDI_GOLD);
+		SetGoldSeed(player, player.HoldItem);
+		SetPlrHandGoldCurs(player.HoldItem);
 		player.HoldItem._ivalue = item._ivalue;
 		DeadItem(player, &player.HoldItem, { 0, 0 });
 		i = -1;
@@ -667,7 +665,11 @@ void InitLevelChange(int pnum)
 	auto &myPlayer = Players[MyPlayerId];
 
 	RemovePlrMissiles(pnum);
+	player.pManaShield = false;
 	player.wReflections = 0;
+	// share info about your manashield when another player joins the level
+	if (pnum != MyPlayerId && myPlayer.pManaShield)
+		NetSendCmd(true, CMD_SETSHIELD);
 	// share info about your reflect charges when another player joins the level
 	if (pnum != MyPlayerId)
 		NetSendCmdParam1(true, CMD_SETREFLECT, myPlayer.wReflections);
@@ -679,7 +681,7 @@ void InitLevelChange(int pnum)
 	RemovePlrFromMap(pnum);
 	SetPlayerOld(player);
 	if (pnum == MyPlayerId) {
-		dPlayer[myPlayer.position.tile.x][myPlayer.position.tile.y] = MyPlayerId + 1;
+		dPlayer[player.position.tile.x][player.position.tile.y] = pnum + 1;
 	} else {
 		player._pLvlVisited[player.plrlevel] = true;
 	}
@@ -726,8 +728,8 @@ bool DoWalk(int pnum, int variant)
 			break;
 		case PM_WALK3:
 			dPlayer[player.position.tile.x][player.position.tile.y] = 0;
-			dFlags[player._pVar4][player._pVar5] &= ~BFLAG_PLAYERLR;
 			player.position.tile = player.position.temp;
+			// dPlayer is set here for backwards comparability, without it the player would be invisible if loaded from a vanilla save.
 			dPlayer[player.position.tile.x][player.position.tile.y] = pnum + 1;
 			break;
 		}
@@ -739,9 +741,8 @@ bool DoWalk(int pnum, int variant)
 		}
 
 		//Update the "camera" tile position
-		if (pnum == MyPlayerId && ScrollInfo._sdir != SDIR_NONE) {
-			ViewX = player.position.tile.x - ScrollInfo.tile.x;
-			ViewY = player.position.tile.y - ScrollInfo.tile.y;
+		if (pnum == MyPlayerId && ScrollInfo._sdir != ScrollDirection::None) {
+			ViewPosition = Point { 0, 0 } + (player.position.tile - ScrollInfo.tile);
 		}
 
 		if (player.walkpath[0] != WALK_NONE) {
@@ -764,19 +765,17 @@ bool DoWalk(int pnum, int variant)
 	return false;
 }
 
-bool WeaponDecay(int pnum, int ii)
+bool WeaponDecay(Player &player, int ii)
 {
-	auto &player = Players[pnum];
-
 	if (!player.InvBody[ii].isEmpty() && player.InvBody[ii]._iClass == ICLASS_WEAPON && (player.InvBody[ii]._iDamAcFlags & ISPLHF_DECAY) != 0) {
 		player.InvBody[ii]._iPLDam -= 5;
 		if (player.InvBody[ii]._iPLDam <= -100) {
 			NetSendCmdDelItem(true, ii);
-			player.InvBody[ii]._itype = ITYPE_NONE;
-			CalcPlrInv(pnum, true);
+			player.InvBody[ii]._itype = ItemType::None;
+			CalcPlrInv(player, true);
 			return true;
 		}
-		CalcPlrInv(pnum, true);
+		CalcPlrInv(player, true);
 	}
 	return false;
 }
@@ -787,19 +786,19 @@ bool DamageWeapon(int pnum, int durrnd)
 		return false;
 	}
 
-	if (WeaponDecay(pnum, INVLOC_HAND_LEFT))
+	if ((DWORD)pnum >= MAX_PLRS) {
+		app_fatal("WeaponDur: illegal player %i", pnum);
+	}
+	auto &player = Players[pnum];
+
+	if (WeaponDecay(player, INVLOC_HAND_LEFT))
 		return true;
-	if (WeaponDecay(pnum, INVLOC_HAND_RIGHT))
+	if (WeaponDecay(player, INVLOC_HAND_RIGHT))
 		return true;
 
 	if (GenerateRnd(durrnd) != 0) {
 		return false;
 	}
-
-	if ((DWORD)pnum >= MAX_PLRS) {
-		app_fatal("WeaponDur: illegal player %i", pnum);
-	}
-	auto &player = Players[pnum];
 
 	if (!player.InvBody[INVLOC_HAND_LEFT].isEmpty() && player.InvBody[INVLOC_HAND_LEFT]._iClass == ICLASS_WEAPON) {
 		if (player.InvBody[INVLOC_HAND_LEFT]._iDurability == DUR_INDESTRUCTIBLE) {
@@ -809,8 +808,8 @@ bool DamageWeapon(int pnum, int durrnd)
 		player.InvBody[INVLOC_HAND_LEFT]._iDurability--;
 		if (player.InvBody[INVLOC_HAND_LEFT]._iDurability <= 0) {
 			NetSendCmdDelItem(true, INVLOC_HAND_LEFT);
-			player.InvBody[INVLOC_HAND_LEFT]._itype = ITYPE_NONE;
-			CalcPlrInv(pnum, true);
+			player.InvBody[INVLOC_HAND_LEFT]._itype = ItemType::None;
+			CalcPlrInv(player, true);
 			return true;
 		}
 	}
@@ -823,13 +822,13 @@ bool DamageWeapon(int pnum, int durrnd)
 		player.InvBody[INVLOC_HAND_RIGHT]._iDurability--;
 		if (player.InvBody[INVLOC_HAND_RIGHT]._iDurability == 0) {
 			NetSendCmdDelItem(true, INVLOC_HAND_RIGHT);
-			player.InvBody[INVLOC_HAND_RIGHT]._itype = ITYPE_NONE;
-			CalcPlrInv(pnum, true);
+			player.InvBody[INVLOC_HAND_RIGHT]._itype = ItemType::None;
+			CalcPlrInv(player, true);
 			return true;
 		}
 	}
 
-	if (player.InvBody[INVLOC_HAND_LEFT].isEmpty() && player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_SHIELD) {
+	if (player.InvBody[INVLOC_HAND_LEFT].isEmpty() && player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Shield) {
 		if (player.InvBody[INVLOC_HAND_RIGHT]._iDurability == DUR_INDESTRUCTIBLE) {
 			return false;
 		}
@@ -837,13 +836,13 @@ bool DamageWeapon(int pnum, int durrnd)
 		player.InvBody[INVLOC_HAND_RIGHT]._iDurability--;
 		if (player.InvBody[INVLOC_HAND_RIGHT]._iDurability == 0) {
 			NetSendCmdDelItem(true, INVLOC_HAND_RIGHT);
-			player.InvBody[INVLOC_HAND_RIGHT]._itype = ITYPE_NONE;
-			CalcPlrInv(pnum, true);
+			player.InvBody[INVLOC_HAND_RIGHT]._itype = ItemType::None;
+			CalcPlrInv(player, true);
 			return true;
 		}
 	}
 
-	if (player.InvBody[INVLOC_HAND_RIGHT].isEmpty() && player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_SHIELD) {
+	if (player.InvBody[INVLOC_HAND_RIGHT].isEmpty() && player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Shield) {
 		if (player.InvBody[INVLOC_HAND_LEFT]._iDurability == DUR_INDESTRUCTIBLE) {
 			return false;
 		}
@@ -851,8 +850,8 @@ bool DamageWeapon(int pnum, int durrnd)
 		player.InvBody[INVLOC_HAND_LEFT]._iDurability--;
 		if (player.InvBody[INVLOC_HAND_LEFT]._iDurability == 0) {
 			NetSendCmdDelItem(true, INVLOC_HAND_LEFT);
-			player.InvBody[INVLOC_HAND_LEFT]._itype = ITYPE_NONE;
-			CalcPlrInv(pnum, true);
+			player.InvBody[INVLOC_HAND_LEFT]._itype = ItemType::None;
+			CalcPlrInv(player, true);
 			return true;
 		}
 	}
@@ -860,15 +859,18 @@ bool DamageWeapon(int pnum, int durrnd)
 	return false;
 }
 
-bool PlrHitMonst(int pnum, int m)
+bool PlrHitMonst(int pnum, int m, bool adjacentDamage = false)
 {
 	int hper = 0;
-	bool adjacentDamage = false;
 
 	if ((DWORD)m >= MAXMONSTERS) {
 		app_fatal("PlrHitMonst: illegal monster %i", m);
 	}
 	auto &monster = Monsters[m];
+
+	if ((DWORD)pnum >= MAX_PLRS) {
+		app_fatal("PlrHitMonst: illegal player %i", pnum);
+	}
 	auto &player = Players[pnum];
 
 	if ((monster._mhitpoints >> 6) <= 0) {
@@ -879,47 +881,23 @@ bool PlrHitMonst(int pnum, int m)
 		return false;
 	}
 
-	if (monster._mmode == MM_CHARGE) {
+	if (monster._mmode == MonsterMode::Charge) {
 		return false;
 	}
 
-	if (pnum < 0) {
-		adjacentDamage = true;
-		pnum = -pnum;
+	if (adjacentDamage) {
 		if (player._pLevel > 20)
 			hper -= 30;
 		else
 			hper -= (35 - player._pLevel) * 2;
 	}
 
-	if ((DWORD)pnum >= MAX_PLRS) {
-		app_fatal("PlrHitMonst: illegal player %i", pnum);
-	}
-
 	int hit = GenerateRnd(100);
-	if (monster._mmode == MM_STONE) {
+	if (monster._mmode == MonsterMode::Petrified) {
 		hit = 0;
 	}
 
-	int tmac = monster.mArmorClass;
-	if (gbIsHellfire && player._pIEnAc > 0) {
-		int pIEnAc = player._pIEnAc - 1;
-		if (pIEnAc > 0)
-			tmac >>= pIEnAc;
-		else
-			tmac -= tmac / 4;
-
-		if (player._pClass == HeroClass::Barbarian) {
-			tmac -= monster.mArmorClass / 8;
-		}
-
-		if (tmac < 0)
-			tmac = 0;
-	} else {
-		tmac -= player._pIEnAc;
-	}
-
-	hper += player.GetMeleeToHit() - tmac;
+	hper += player.GetMeleePiercingToHit() - player.CalculateArmorPierce(monster.mArmorClass, true);
 	hper = clamp(hper, 5, 95);
 
 	bool ret = false;
@@ -951,30 +929,30 @@ bool PlrHitMonst(int pnum, int m)
 		}
 	}
 
-	int phanditype = ITYPE_NONE;
-	if (player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_SWORD || player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_SWORD) {
-		phanditype = ITYPE_SWORD;
+	ItemType phanditype = ItemType::None;
+	if (player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Sword || player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Sword) {
+		phanditype = ItemType::Sword;
 	}
-	if (player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_MACE || player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_MACE) {
-		phanditype = ITYPE_MACE;
+	if (player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Mace || player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Mace) {
+		phanditype = ItemType::Mace;
 	}
 
 	switch (monster.MData->mMonstClass) {
-	case MC_UNDEAD:
-		if (phanditype == ITYPE_SWORD) {
+	case MonsterClass::Undead:
+		if (phanditype == ItemType::Sword) {
 			dam -= dam / 2;
-		} else if (phanditype == ITYPE_MACE) {
+		} else if (phanditype == ItemType::Mace) {
 			dam += dam / 2;
 		}
 		break;
-	case MC_ANIMAL:
-		if (phanditype == ITYPE_MACE) {
+	case MonsterClass::Animal:
+		if (phanditype == ItemType::Mace) {
 			dam -= dam / 2;
-		} else if (phanditype == ITYPE_SWORD) {
+		} else if (phanditype == ItemType::Sword) {
 			dam += dam / 2;
 		}
 		break;
-	case MC_DEMON:
+	case MonsterClass::Demon:
 		if ((player._pIFlags & ISPL_3XDAMVDEM) != 0) {
 			dam *= 3;
 		}
@@ -1067,14 +1045,14 @@ bool PlrHitMonst(int pnum, int m)
 	}
 #endif
 	if ((monster._mhitpoints >> 6) <= 0) {
-		if (monster._mmode == MM_STONE) {
+		if (monster._mmode == MonsterMode::Petrified) {
 			M_StartKill(m, pnum);
 			monster.Petrify();
 		} else {
 			M_StartKill(m, pnum);
 		}
 	} else {
-		if (monster._mmode == MM_STONE) {
+		if (monster._mmode == MonsterMode::Petrified) {
 			M_StartHit(m, pnum, dam);
 			monster.Petrify();
 		} else {
@@ -1163,18 +1141,10 @@ bool PlrHitPlr(int pnum, int8_t p)
 	return true;
 }
 
-bool PlrHitObj(int pnum, int mx, int my)
+bool PlrHitObj(int pnum, Object &targetObject)
 {
-	int oi;
-
-	if (dObject[mx][my] > 0) {
-		oi = dObject[mx][my] - 1;
-	} else {
-		oi = -dObject[mx][my] - 1;
-	}
-
-	if (Objects[oi]._oBreak == 1) {
-		BreakObject(pnum, oi);
+	if (targetObject.IsBreakable()) {
+		BreakObject(pnum, targetObject);
 		return true;
 	}
 
@@ -1214,9 +1184,9 @@ bool DoAttack(int pnum)
 
 		if ((player._pIFlags & ISPL_FIREDAM) == 0 || (player._pIFlags & ISPL_LIGHTDAM) == 0) {
 			if ((player._pIFlags & ISPL_FIREDAM) != 0) {
-				AddMissile({ dx, dy }, { 1, 0 }, 0, MIS_WEAPEXP, TARGET_MONSTERS, pnum, 0, 0);
+				AddMissile({ dx, dy }, { 1, 0 }, Direction::South, MIS_WEAPEXP, TARGET_MONSTERS, pnum, 0, 0);
 			} else if ((player._pIFlags & ISPL_LIGHTDAM) != 0) {
-				AddMissile({ dx, dy }, { 2, 0 }, 0, MIS_WEAPEXP, TARGET_MONSTERS, pnum, 0, 0);
+				AddMissile({ dx, dy }, { 2, 0 }, Direction::South, MIS_WEAPEXP, TARGET_MONSTERS, pnum, 0, 0);
 			}
 		}
 
@@ -1228,7 +1198,7 @@ bool DoAttack(int pnum)
 				m = -(dMonster[dx][dy] + 1);
 			}
 			didhit = PlrHitMonst(pnum, m);
-		} else if (dPlayer[dx][dy] != 0 && (!gbFriendlyMode || sgGameInitInfo.bFriendlyFire != 0)) {
+		} else if (dPlayer[dx][dy] != 0 && !gbFriendlyMode) {
 			BYTE p = dPlayer[dx][dy];
 			if (dPlayer[dx][dy] > 0) {
 				p = dPlayer[dx][dy] - 1;
@@ -1237,34 +1207,34 @@ bool DoAttack(int pnum)
 			}
 			didhit = PlrHitPlr(pnum, p);
 		} else if (dObject[dx][dy] > 0) {
-			didhit = PlrHitObj(pnum, dx, dy);
+			didhit = PlrHitObj(pnum, Objects[dObject[dx][dy] - 1]);
 		}
 		if ((player._pClass == HeroClass::Monk
-		        && (player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_STAFF || player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_STAFF))
+		        && (player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Staff || player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Staff))
 		    || (player._pClass == HeroClass::Bard
-		        && player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_SWORD && player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_SWORD)
+		        && player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Sword && player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Sword)
 		    || (player._pClass == HeroClass::Barbarian
-		        && (player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_AXE || player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_AXE
-		            || (((player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_MACE && player.InvBody[INVLOC_HAND_LEFT]._iLoc == ILOC_TWOHAND)
-		                    || (player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_MACE && player.InvBody[INVLOC_HAND_RIGHT]._iLoc == ILOC_TWOHAND)
-		                    || (player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_SWORD && player.InvBody[INVLOC_HAND_LEFT]._iLoc == ILOC_TWOHAND)
-		                    || (player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_SWORD && player.InvBody[INVLOC_HAND_RIGHT]._iLoc == ILOC_TWOHAND))
-		                && !(player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_SHIELD || player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_SHIELD))))) {
-			position = player.position.tile + right[player._pdir];
+		        && (player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Axe || player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Axe
+		            || (((player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Mace && player.InvBody[INVLOC_HAND_LEFT]._iLoc == ILOC_TWOHAND)
+		                    || (player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Mace && player.InvBody[INVLOC_HAND_RIGHT]._iLoc == ILOC_TWOHAND)
+		                    || (player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Sword && player.InvBody[INVLOC_HAND_LEFT]._iLoc == ILOC_TWOHAND)
+		                    || (player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Sword && player.InvBody[INVLOC_HAND_RIGHT]._iLoc == ILOC_TWOHAND))
+		                && !(player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Shield || player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Shield))))) {
+			position = player.position.tile + Right(player._pdir);
 			if (dMonster[position.x][position.y] != 0) {
 				int m = abs(dMonster[position.x][position.y]) - 1;
 				auto &monster = Monsters[m];
 				if (!CanTalkToMonst(monster) && monster.position.old == position) {
-					if (PlrHitMonst(-pnum, m))
+					if (PlrHitMonst(pnum, m, true))
 						didhit = true;
 				}
 			}
-			position = player.position.tile + left[player._pdir];
+			position = player.position.tile + Left(player._pdir);
 			if (dMonster[position.x][position.y] != 0) {
 				int m = abs(dMonster[position.x][position.y]) - 1;
 				auto &monster = Monsters[m];
 				if (!CanTalkToMonst(monster) && monster.position.old == position) {
-					if (PlrHitMonst(-pnum, m))
+					if (PlrHitMonst(pnum, m, true))
 						didhit = true;
 				}
 			}
@@ -1367,7 +1337,7 @@ void ShieldDur(int pnum)
 	}
 	auto &player = Players[pnum];
 
-	if (player.InvBody[INVLOC_HAND_LEFT]._itype == ITYPE_SHIELD) {
+	if (player.InvBody[INVLOC_HAND_LEFT]._itype == ItemType::Shield) {
 		if (player.InvBody[INVLOC_HAND_LEFT]._iDurability == DUR_INDESTRUCTIBLE) {
 			return;
 		}
@@ -1375,18 +1345,18 @@ void ShieldDur(int pnum)
 		player.InvBody[INVLOC_HAND_LEFT]._iDurability--;
 		if (player.InvBody[INVLOC_HAND_LEFT]._iDurability == 0) {
 			NetSendCmdDelItem(true, INVLOC_HAND_LEFT);
-			player.InvBody[INVLOC_HAND_LEFT]._itype = ITYPE_NONE;
-			CalcPlrInv(pnum, true);
+			player.InvBody[INVLOC_HAND_LEFT]._itype = ItemType::None;
+			CalcPlrInv(player, true);
 		}
 	}
 
-	if (player.InvBody[INVLOC_HAND_RIGHT]._itype == ITYPE_SHIELD) {
+	if (player.InvBody[INVLOC_HAND_RIGHT]._itype == ItemType::Shield) {
 		if (player.InvBody[INVLOC_HAND_RIGHT]._iDurability != DUR_INDESTRUCTIBLE) {
 			player.InvBody[INVLOC_HAND_RIGHT]._iDurability--;
 			if (player.InvBody[INVLOC_HAND_RIGHT]._iDurability == 0) {
 				NetSendCmdDelItem(true, INVLOC_HAND_RIGHT);
-				player.InvBody[INVLOC_HAND_RIGHT]._itype = ITYPE_NONE;
-				CalcPlrInv(pnum, true);
+				player.InvBody[INVLOC_HAND_RIGHT]._itype = ItemType::None;
+				CalcPlrInv(player, true);
 			}
 		}
 	}
@@ -1415,7 +1385,7 @@ bool DoBlock(int pnum)
 void DamageArmor(int pnum)
 {
 	int a;
-	ItemStruct *pi;
+	Item *pi;
 
 	if (pnum != MyPlayerId) {
 		return;
@@ -1457,8 +1427,8 @@ void DamageArmor(int pnum)
 	} else {
 		NetSendCmdDelItem(true, INVLOC_HEAD);
 	}
-	pi->_itype = ITYPE_NONE;
-	CalcPlrInv(pnum, true);
+	pi->_itype = ItemType::None;
+	CalcPlrInv(player, true);
 }
 
 bool DoSpell(int pnum)
@@ -1477,7 +1447,7 @@ bool DoSpell(int pnum)
 		    player.position.tile.y,
 		    player.position.temp.x,
 		    player.position.temp.y,
-		    player._pVar4);
+		    player.spellLevel);
 
 		if (player._pSplFrom == 0) {
 			EnsureValidReadiedSpell(player);
@@ -1533,7 +1503,7 @@ bool DoDeath(int pnum)
 
 		player.AnimInfo.TicksPerFrame = 10000;
 		player.AnimInfo.CurrentFrame = player.AnimInfo.NumberOfFrames;
-		dFlags[player.position.tile.x][player.position.tile.y] |= BFLAG_DEAD_PLAYER;
+		dFlags[player.position.tile.x][player.position.tile.y] |= DungeonFlag::DeadPlayer;
 	}
 
 	if (player.deathFrame < 100) {
@@ -1553,10 +1523,10 @@ void CheckNewPath(int pnum, bool pmWillBeCalled)
 	int x = 0;
 	int y = 0;
 
-	MonsterStruct *monster;
-	PlayerStruct *target;
-	ObjectStruct *object;
-	ItemStruct *item;
+	Monster *monster;
+	Player *target;
+	Object *object;
+	Item *item;
 
 	int targetId = player.destParam1;
 
@@ -1634,28 +1604,28 @@ void CheckNewPath(int pnum, bool pmWillBeCalled)
 
 			switch (player.walkpath[0]) {
 			case WALK_N:
-				StartWalk(pnum, { 0, -xvel }, DIR_N, pmWillBeCalled);
+				StartWalk(pnum, { 0, -xvel }, Direction::North, pmWillBeCalled);
 				break;
 			case WALK_NE:
-				StartWalk(pnum, { xvel, -yvel }, DIR_NE, pmWillBeCalled);
+				StartWalk(pnum, { xvel, -yvel }, Direction::NorthEast, pmWillBeCalled);
 				break;
 			case WALK_E:
-				StartWalk(pnum, { xvel3, 0 }, DIR_E, pmWillBeCalled);
+				StartWalk(pnum, { xvel3, 0 }, Direction::East, pmWillBeCalled);
 				break;
 			case WALK_SE:
-				StartWalk(pnum, { xvel, yvel }, DIR_SE, pmWillBeCalled);
+				StartWalk(pnum, { xvel, yvel }, Direction::SouthEast, pmWillBeCalled);
 				break;
 			case WALK_S:
-				StartWalk(pnum, { 0, xvel }, DIR_S, pmWillBeCalled);
+				StartWalk(pnum, { 0, xvel }, Direction::South, pmWillBeCalled);
 				break;
 			case WALK_SW:
-				StartWalk(pnum, { -xvel, yvel }, DIR_SW, pmWillBeCalled);
+				StartWalk(pnum, { -xvel, yvel }, Direction::SouthWest, pmWillBeCalled);
 				break;
 			case WALK_W:
-				StartWalk(pnum, { -xvel3, 0 }, DIR_W, pmWillBeCalled);
+				StartWalk(pnum, { -xvel3, 0 }, Direction::West, pmWillBeCalled);
 				break;
 			case WALK_NW:
-				StartWalk(pnum, { -xvel, -yvel }, DIR_NW, pmWillBeCalled);
+				StartWalk(pnum, { -xvel, -yvel }, Direction::NorthWest, pmWillBeCalled);
 				break;
 			}
 
@@ -1722,22 +1692,22 @@ void CheckNewPath(int pnum, bool pmWillBeCalled)
 		case ACTION_SPELL:
 			d = GetDirection(player.position.tile, { player.destParam1, player.destParam2 });
 			StartSpell(pnum, d, player.destParam1, player.destParam2);
-			player._pVar4 = player.destParam3;
+			player.spellLevel = player.destParam3;
 			break;
 		case ACTION_SPELLWALL:
-			StartSpell(pnum, player.destParam3, player.destParam1, player.destParam2);
-			player.tempDirection = player.destParam3;
-			player._pVar4 = player.destParam4;
+			StartSpell(pnum, static_cast<Direction>(player.destParam3), player.destParam1, player.destParam2);
+			player.tempDirection = static_cast<Direction>(player.destParam3);
+			player.spellLevel = player.destParam4;
 			break;
 		case ACTION_SPELLMON:
 			d = GetDirection(player.position.tile, monster->position.future);
 			StartSpell(pnum, d, monster->position.future.x, monster->position.future.y);
-			player._pVar4 = player.destParam2;
+			player.spellLevel = player.destParam2;
 			break;
 		case ACTION_SPELLPLR:
 			d = GetDirection(player.position.tile, target->position.future);
 			StartSpell(pnum, d, target->position.future.x, target->position.future.y);
-			player._pVar4 = player.destParam2;
+			player.spellLevel = player.destParam2;
 			break;
 		case ACTION_OPERATE:
 			x = abs(player.position.tile.x - object->position.x);
@@ -1780,7 +1750,7 @@ void CheckNewPath(int pnum, bool pmWillBeCalled)
 				x = abs(player.position.tile.x - item->position.x);
 				y = abs(player.position.tile.y - item->position.y);
 				if (x <= 1 && y <= 1 && pcurs == CURSOR_HAND && !item->_iRequest) {
-					NetSendCmdGItem(true, CMD_REQUESTGITEM, MyPlayerId, MyPlayerId, targetId);
+					NetSendCmdGItem(true, CMD_REQUESTGITEM, pnum, pnum, targetId);
 					item->_iRequest = true;
 				}
 			}
@@ -1790,7 +1760,7 @@ void CheckNewPath(int pnum, bool pmWillBeCalled)
 				x = abs(player.position.tile.x - item->position.x);
 				y = abs(player.position.tile.y - item->position.y);
 				if (x <= 1 && y <= 1 && pcurs == CURSOR_HAND) {
-					NetSendCmdGItem(true, CMD_REQUESTAGITEM, MyPlayerId, MyPlayerId, targetId);
+					NetSendCmdGItem(true, CMD_REQUESTAGITEM, pnum, pnum, targetId);
 				}
 			}
 			break;
@@ -1921,7 +1891,7 @@ void ValidatePlayer()
 
 	int gt = 0;
 	for (int i = 0; i < myPlayer._pNumInv; i++) {
-		if (myPlayer.InvList[i]._itype == ITYPE_GOLD) {
+		if (myPlayer.InvList[i]._itype == ItemType::Gold) {
 			int maxGold = GOLD_MAX_LIMIT;
 			if (gbIsHellfire) {
 				maxGold *= 2;
@@ -1960,7 +1930,7 @@ void ValidatePlayer()
 	myPlayer._pMemSpells &= msk;
 }
 
-void CheckCheatStats(PlayerStruct &player)
+void CheckCheatStats(Player &player)
 {
 	if (player._pStrength > 750) {
 		player._pStrength = 750;
@@ -1989,26 +1959,18 @@ void CheckCheatStats(PlayerStruct &player)
 
 } // namespace
 
-void PlayerStruct::CalcScrolls()
+void Player::CalcScrolls()
 {
 	_pScrlSpells = 0;
-	for (int i = 0; i < _pNumInv; i++) {
-		if (!InvList[i].isEmpty() && (InvList[i]._iMiscId == IMISC_SCROLL || InvList[i]._iMiscId == IMISC_SCROLLT)) {
-			if (InvList[i]._iStatFlag)
-				_pScrlSpells |= GetSpellBitmask(InvList[i]._iSpell);
-		}
-	}
-
-	for (auto &item : SpdList) {
-		if (!item.isEmpty() && (item._iMiscId == IMISC_SCROLL || item._iMiscId == IMISC_SCROLLT)) {
-			if (item._iStatFlag)
-				_pScrlSpells |= GetSpellBitmask(item._iSpell);
+	for (Item &item : InventoryAndBeltPlayerItemsRange { *this }) {
+		if (item.IsScroll() && item._iStatFlag) {
+			_pScrlSpells |= GetSpellBitmask(item._iSpell);
 		}
 	}
 	EnsureValidReadiedSpell(*this);
 }
 
-bool PlayerStruct::HasItem(int item, int *idx) const
+bool Player::HasItem(int item, int *idx) const
 {
 	for (int i = 0; i < _pNumInv; i++) {
 		if (InvList[i].IDidx == item) {
@@ -2021,7 +1983,7 @@ bool PlayerStruct::HasItem(int item, int *idx) const
 	return false;
 }
 
-void PlayerStruct::RemoveInvItem(int iv, bool calcScrolls)
+void Player::RemoveInvItem(int iv, bool calcScrolls)
 {
 	iv++;
 
@@ -2053,7 +2015,7 @@ void PlayerStruct::RemoveInvItem(int iv, bool calcScrolls)
 		CalcScrolls();
 }
 
-bool PlayerStruct::TryRemoveInvItemById(int item)
+bool Player::TryRemoveInvItemById(int item)
 {
 	int idx;
 	if (HasItem(item, &idx)) {
@@ -2063,15 +2025,15 @@ bool PlayerStruct::TryRemoveInvItemById(int item)
 	return false;
 }
 
-void PlayerStruct::RemoveSpdBarItem(int iv)
+void Player::RemoveSpdBarItem(int iv)
 {
-	SpdList[iv]._itype = ITYPE_NONE;
+	SpdList[iv]._itype = ItemType::None;
 
 	CalcScrolls();
 	force_redraw = 255;
 }
 
-int PlayerStruct::GetBaseAttributeValue(CharacterAttribute attribute) const
+int Player::GetBaseAttributeValue(CharacterAttribute attribute) const
 {
 	switch (attribute) {
 	case CharacterAttribute::Dexterity:
@@ -2087,7 +2049,23 @@ int PlayerStruct::GetBaseAttributeValue(CharacterAttribute attribute) const
 	}
 }
 
-int PlayerStruct::GetMaximumAttributeValue(CharacterAttribute attribute) const
+int Player::GetCurrentAttributeValue(CharacterAttribute attribute) const
+{
+	switch (attribute) {
+	case CharacterAttribute::Dexterity:
+		return this->_pDexterity;
+	case CharacterAttribute::Magic:
+		return this->_pMagic;
+	case CharacterAttribute::Strength:
+		return this->_pStrength;
+	case CharacterAttribute::Vitality:
+		return this->_pVitality;
+	default:
+		app_fatal("Unsupported attribute");
+	}
+}
+
+int Player::GetMaximumAttributeValue(CharacterAttribute attribute) const
 {
 	static const int MaxStats[enum_size<HeroClass>::value][enum_size<CharacterAttribute>::value] = {
 		// clang-format off
@@ -2103,7 +2081,7 @@ int PlayerStruct::GetMaximumAttributeValue(CharacterAttribute attribute) const
 	return MaxStats[static_cast<std::size_t>(_pClass)][static_cast<std::size_t>(attribute)];
 }
 
-Point PlayerStruct::GetTargetPosition() const
+Point Player::GetTargetPosition() const
 {
 	// clang-format off
 	constexpr int DirectionOffsetX[8] = {  0,-1, 1, 0,-1, 1, 1,-1 };
@@ -2121,14 +2099,14 @@ Point PlayerStruct::GetTargetPosition() const
 	return target;
 }
 
-void PlayerStruct::Say(HeroSpeech speechId) const
+void Player::Say(HeroSpeech speechId) const
 {
 	_sfx_id soundEffect = herosounds[static_cast<size_t>(_pClass)][static_cast<size_t>(speechId)];
 
 	PlaySfxLoc(soundEffect, position.tile);
 }
 
-void PlayerStruct::SaySpecific(HeroSpeech speechId) const
+void Player::SaySpecific(HeroSpeech speechId) const
 {
 	_sfx_id soundEffect = herosounds[static_cast<size_t>(_pClass)][static_cast<size_t>(speechId)];
 
@@ -2138,40 +2116,40 @@ void PlayerStruct::SaySpecific(HeroSpeech speechId) const
 	PlaySfxLoc(soundEffect, position.tile, false);
 }
 
-void PlayerStruct::Say(HeroSpeech speechId, int delay) const
+void Player::Say(HeroSpeech speechId, int delay) const
 {
 	sfxdelay = delay;
 	sfxdnum = herosounds[static_cast<size_t>(_pClass)][static_cast<size_t>(speechId)];
 }
 
-void PlayerStruct::Stop()
+void Player::Stop()
 {
 	ClrPlrPath(*this);
 	destAction = ACTION_NONE;
 }
 
-bool PlayerStruct::IsWalking() const
+bool Player::IsWalking() const
 {
 	return IsAnyOf(_pmode, PM_WALK, PM_WALK2, PM_WALK3);
 }
 
-void PlayerStruct::Reset()
+void Player::Reset()
 {
-	// Create empty default initialized PlayerStruct on heap to avoid excessive stack usage
-	auto emptyPlayer = std::make_unique<PlayerStruct>();
+	// Create empty default initialized Player on heap to avoid excessive stack usage
+	auto emptyPlayer = std::make_unique<Player>();
 	*this = std::move(*emptyPlayer);
 }
 
-void LoadPlrGFX(PlayerStruct &player, player_graphic graphic)
+void LoadPlrGFX(Player &player, player_graphic graphic)
 {
 	char prefix[16];
 	char pszName[256];
 	const char *szCel;
 
 	HeroClass c = player._pClass;
-	if (c == HeroClass::Bard && hfbard_mpq == nullptr) {
+	if (c == HeroClass::Bard && !hfbard_mpq) {
 		c = HeroClass::Rogue;
-	} else if (c == HeroClass::Barbarian && hfbarb_mpq == nullptr) {
+	} else if (c == HeroClass::Barbarian && !hfbarb_mpq) {
 		c = HeroClass::Warrior;
 	}
 
@@ -2263,7 +2241,7 @@ void LoadPlrGFX(PlayerStruct &player, player_graphic graphic)
 	SetPlayerGPtrs(pszName, animationData.RawData, animationData.CelSpritesForDirections, animationWidth);
 }
 
-void InitPlayerGFX(PlayerStruct &player)
+void InitPlayerGFX(Player &player)
 {
 	if (player._pHitPoints >> 6 == 0) {
 		player._pgfxnum = 0;
@@ -2279,7 +2257,7 @@ void InitPlayerGFX(PlayerStruct &player)
 	}
 }
 
-void ResetPlayerGFX(PlayerStruct &player)
+void ResetPlayerGFX(Player &player)
 {
 	player.AnimInfo.pCelSprite = nullptr;
 	for (auto &animData : player.AnimationData) {
@@ -2289,21 +2267,19 @@ void ResetPlayerGFX(PlayerStruct &player)
 	}
 }
 
-void NewPlrAnim(PlayerStruct &player, player_graphic graphic, Direction dir, int numberOfFrames, int delayLen, AnimationDistributionFlags flags /*= AnimationDistributionFlags::None*/, int numSkippedFrames /*= 0*/, int distributeFramesBeforeFrame /*= 0*/)
+void NewPlrAnim(Player &player, player_graphic graphic, Direction dir, int numberOfFrames, int delayLen, AnimationDistributionFlags flags /*= AnimationDistributionFlags::None*/, int numSkippedFrames /*= 0*/, int distributeFramesBeforeFrame /*= 0*/)
 {
 	if (player.AnimationData[static_cast<size_t>(graphic)].RawData == nullptr)
 		LoadPlrGFX(player, graphic);
 
-	auto &celSprites = player.AnimationData[static_cast<size_t>(graphic)].CelSpritesForDirections;
+	auto &celSprite = player.AnimationData[static_cast<size_t>(graphic)].CelSpritesForDirections[static_cast<size_t>(dir)];
 
-	CelSprite *pCelSprite = nullptr;
-	if (celSprites[dir])
-		pCelSprite = &*celSprites[dir];
+	CelSprite *pCelSprite = celSprite ? &*celSprite : nullptr;
 
 	player.AnimInfo.SetNewAnimation(pCelSprite, numberOfFrames, delayLen, flags, numSkippedFrames, distributeFramesBeforeFrame);
 }
 
-void SetPlrAnims(PlayerStruct &player)
+void SetPlrAnims(Player &player)
 {
 	HeroClass pc = player._pClass;
 
@@ -2565,16 +2541,14 @@ void CreatePlayer(int playerId, HeroClass c)
 	SetRndSeed(0);
 }
 
-int CalcStatDiff(PlayerStruct &player)
+int CalcStatDiff(Player &player)
 {
-	return player.GetMaximumAttributeValue(CharacterAttribute::Strength)
-	    - player._pBaseStr
-	    + player.GetMaximumAttributeValue(CharacterAttribute::Magic)
-	    - player._pBaseMag
-	    + player.GetMaximumAttributeValue(CharacterAttribute::Dexterity)
-	    - player._pBaseDex
-	    + player.GetMaximumAttributeValue(CharacterAttribute::Vitality)
-	    - player._pBaseVit;
+	int diff = 0;
+	for (auto attribute : enum_values<CharacterAttribute>()) {
+		diff += player.GetMaximumAttributeValue(attribute);
+		diff -= player.GetBaseAttributeValue(attribute);
+	}
+	return diff;
 }
 
 void NextPlrLevel(int pnum)
@@ -2587,7 +2561,7 @@ void NextPlrLevel(int pnum)
 	player._pLevel++;
 	player._pMaxLvl++;
 
-	CalcPlrInv(pnum, true);
+	CalcPlrInv(player, true);
 
 	if (CalcStatDiff(player) < 5) {
 		player._pStatPts = CalcStatDiff(player);
@@ -2598,9 +2572,7 @@ void NextPlrLevel(int pnum)
 	player._pNextExper = ExpLvlsTbl[player._pLevel];
 
 	int hp = player._pClass == HeroClass::Sorcerer ? 64 : 128;
-	if (!gbIsMultiplayer) {
-		hp++;
-	}
+
 	player._pMaxHP += hp;
 	player._pHitPoints = player._pMaxHP;
 	player._pMaxHPBase += hp;
@@ -2616,9 +2588,6 @@ void NextPlrLevel(int pnum)
 	else if (player._pClass == HeroClass::Barbarian)
 		mana = 0;
 
-	if (!gbIsMultiplayer) {
-		mana++;
-	}
 	player._pMaxMana += mana;
 	player._pMaxManaBase += mana;
 
@@ -2634,7 +2603,7 @@ void NextPlrLevel(int pnum)
 	if (sgbControllerActive)
 		FocusOnCharInfo();
 
-	CalcPlrInv(pnum, true);
+	CalcPlrInv(player, true);
 }
 
 void AddPlrExperience(int pnum, int lvl, int exp)
@@ -2708,18 +2677,14 @@ void AddPlrMonstExper(int lvl, int exp, char pmask)
 	}
 }
 
-void InitPlayer(int pnum, bool firstTime)
+void InitPlayer(Player &player, bool firstTime)
 {
-	if ((DWORD)pnum >= MAX_PLRS) {
-		app_fatal("InitPlayer: illegal player %i", pnum);
-	}
-	auto &player = Players[pnum];
 	auto &myPlayer = Players[MyPlayerId];
 
 	if (firstTime) {
 		player._pRSplType = RSPLTYPE_INVALID;
 		player._pRSpell = SPL_INVALID;
-		if (pnum == MyPlayerId)
+		if (&player == &myPlayer)
 			LoadHotkeys();
 		player._pSBkSpell = SPL_INVALID;
 		player._pSpell = player._pRSpell;
@@ -2739,20 +2704,20 @@ void InitPlayer(int pnum, bool firstTime)
 
 		if (player._pHitPoints >> 6 > 0) {
 			player._pmode = PM_STAND;
-			NewPlrAnim(player, player_graphic::Stand, DIR_S, player._pNFrames, 4);
+			NewPlrAnim(player, player_graphic::Stand, Direction::South, player._pNFrames, 4);
 			player.AnimInfo.CurrentFrame = GenerateRnd(player._pNFrames - 1) + 1;
 			player.AnimInfo.TickCounterOfCurrentFrame = GenerateRnd(3);
 		} else {
 			player._pmode = PM_DEATH;
-			NewPlrAnim(player, player_graphic::Death, DIR_S, player._pDFrames, 2);
+			NewPlrAnim(player, player_graphic::Death, Direction::South, player._pDFrames, 2);
 			player.AnimInfo.CurrentFrame = player.AnimInfo.NumberOfFrames - 1;
 		}
 
-		player._pdir = DIR_S;
+		player._pdir = Direction::South;
 
-		if (pnum == MyPlayerId) {
+		if (&player == &myPlayer) {
 			if (!firstTime || currlevel != 0) {
-				player.position.tile = { ViewX, ViewY };
+				player.position.tile = ViewPosition;
 			}
 		} else {
 			unsigned i;
@@ -2766,13 +2731,13 @@ void InitPlayer(int pnum, bool firstTime)
 		player.walkpath[0] = WALK_NONE;
 		player.destAction = ACTION_NONE;
 
-		if (pnum == MyPlayerId) {
+		if (&player == &myPlayer) {
 			player._plid = AddLight(player.position.tile, player._pLightRad);
-			ChangeLightXY(myPlayer._plid, myPlayer.position.tile); // fix for a bug where old light is still visible at the entrance after reentering level
+			ChangeLightXY(player._plid, player.position.tile); // fix for a bug where old light is still visible at the entrance after reentering level
 		} else {
 			player._plid = NO_LIGHT;
 		}
-		player._pvid = AddVision(player.position.tile, player._pLightRad, pnum == MyPlayerId);
+		player._pvid = AddVision(player.position.tile, player._pLightRad, &player == &myPlayer);
 	}
 
 	if (player._pClass == HeroClass::Warrior) {
@@ -2789,20 +2754,14 @@ void InitPlayer(int pnum, bool firstTime)
 		player._pAblSpells = GetSpellBitmask(SPL_BLODBOIL);
 	}
 
-#ifdef _DEBUG
-	if (debug_mode_key_inverted_v && firstTime) {
-		player._pMemSpells = SPL_INVALID;
-	}
-#endif
-
 	player._pNextExper = ExpLvlsTbl[player._pLevel];
 	player._pInvincible = false;
 
-	if (pnum == MyPlayerId) {
+	if (&player == &myPlayer) {
 		deathdelay = 0;
 		MyPlayerIsDead = false;
 		ScrollInfo.offset = { 0, 0 };
-		ScrollInfo._sdir = SDIR_NONE;
+		ScrollInfo._sdir = ScrollDirection::None;
 	}
 }
 
@@ -2813,8 +2772,7 @@ void InitMultiView()
 	}
 	auto &myPlayer = Players[MyPlayerId];
 
-	ViewX = myPlayer.position.tile.x;
-	ViewY = myPlayer.position.tile.y;
+	ViewPosition = myPlayer.position.tile;
 }
 
 void PlrClrTrans(Point position)
@@ -2842,7 +2800,7 @@ void PlrDoTrans(Point position)
 	}
 }
 
-void SetPlayerOld(PlayerStruct &player)
+void SetPlayerOld(Player &player)
 {
 	player.position.old = player.position.tile;
 }
@@ -2859,9 +2817,8 @@ void FixPlayerLocation(int pnum, Direction bDir)
 	player._pdir = bDir;
 	if (pnum == MyPlayerId) {
 		ScrollInfo.offset = { 0, 0 };
-		ScrollInfo._sdir = SDIR_NONE;
-		ViewX = player.position.tile.x;
-		ViewY = player.position.tile.y;
+		ScrollInfo._sdir = ScrollDirection::None;
+		ViewPosition = player.position.tile;
 	}
 	ChangeLightXY(player._plid, player.position.tile);
 	ChangeVisionXY(player._pvid, player.position.tile);
@@ -2926,15 +2883,10 @@ void FixPlrWalkTags(int pnum)
 	int dy = player.position.old.y;
 	for (int y = dy - 1; y <= dy + 1; y++) {
 		for (int x = dx - 1; x <= dx + 1; x++) {
-			if (x >= 0 && x < MAXDUNX && y >= 0 && y < MAXDUNY && (dPlayer[x][y] == pp || dPlayer[x][y] == pn)) {
+			if (InDungeonBounds({ x, y }) && (dPlayer[x][y] == pp || dPlayer[x][y] == pn)) {
 				dPlayer[x][y] = 0;
 			}
 		}
-	}
-
-	if (dx >= 0 && dx < MAXDUNX - 1 && dy >= 0 && dy < MAXDUNY - 1) {
-		dFlags[dx + 1][dy] &= ~BFLAG_PLAYERLR;
-		dFlags[dx][dy + 1] &= ~BFLAG_PLAYERLR;
 	}
 }
 
@@ -2942,16 +2894,6 @@ void RemovePlrFromMap(int pnum)
 {
 	int pp = pnum + 1;
 	int pn = -(pnum + 1);
-
-	for (int y = 1; y < MAXDUNY; y++) {
-		for (int x = 1; x < MAXDUNX; x++) {
-			if (dPlayer[x][y - 1] == pn || dPlayer[x - 1][y] == pn) {
-				if ((dFlags[x][y] & BFLAG_PLAYERLR) != 0) {
-					dFlags[x][y] &= ~BFLAG_PLAYERLR;
-				}
-			}
-		}
-	}
 
 	for (int y = 0; y < MAXDUNY; y++) {
 		for (int x = 0; x < MAXDUNX; x++) // NOLINT(modernize-loop-convert)
@@ -3029,7 +2971,7 @@ StartPlayerKill(int pnum, int earflag)
 
 	bool diablolevel = gbIsMultiplayer && player.plrlevel == 16;
 
-	player.Say(HeroSpeech::OofAh);
+	player.Say(HeroSpeech::AuughUh);
 
 	if (player._pgfxnum != 0) {
 		player._pgfxnum = 0;
@@ -3042,20 +2984,20 @@ StartPlayerKill(int pnum, int earflag)
 	player._pBlockFlag = false;
 	player._pmode = PM_DEATH;
 	player._pInvincible = true;
-	SetPlayerHitPoints(pnum, 0);
+	SetPlayerHitPoints(player, 0);
 	player.deathFrame = 1;
 
 	if (pnum != MyPlayerId && earflag == 0 && !diablolevel) {
 		for (auto &item : player.InvBody) {
-			item._itype = ITYPE_NONE;
+			item._itype = ItemType::None;
 		}
-		CalcPlrInv(pnum, false);
+		CalcPlrInv(player, false);
 	}
 
 	if (player.plrlevel == currlevel) {
 		FixPlayerLocation(pnum, player._pdir);
 		RemovePlrFromMap(pnum);
-		dFlags[player.position.tile.x][player.position.tile.y] |= BFLAG_DEAD_PLAYER;
+		dFlags[player.position.tile.x][player.position.tile.y] |= DungeonFlag::DeadPlayer;
 		SetPlayerOld(player);
 
 		if (pnum == MyPlayerId) {
@@ -3071,8 +3013,8 @@ StartPlayerKill(int pnum, int earflag)
 				DropHalfPlayersGold(pnum);
 				if (earflag != -1) {
 					if (earflag != 0) {
-						ItemStruct ear;
-						SetPlrHandItem(&ear, IDI_EAR);
+						Item ear;
+						SetPlrHandItem(ear, IDI_EAR);
 						strcpy(ear._iName, fmt::format(_("Ear of {:s}"), player._pName).c_str());
 						switch (player._pClass) {
 						case HeroClass::Sorcerer:
@@ -3099,37 +3041,32 @@ StartPlayerKill(int pnum, int earflag)
 					} else {
 						Direction pdd = player._pdir;
 						for (auto &item : player.InvBody) {
-							pdd = left[pdd];
-							DeadItem(player, &item, Displacement::fromDirection(pdd));
+							pdd = Left(pdd);
+							DeadItem(player, &item, Displacement(pdd));
 						}
 
-						CalcPlrInv(pnum, false);
+						CalcPlrInv(player, false);
 					}
 				}
 			}
 		}
 	}
-	SetPlayerHitPoints(pnum, 0);
+	SetPlayerHitPoints(player, 0);
 }
 
-void StripTopGold(int pnum)
+void StripTopGold(Player &player)
 {
-	if ((DWORD)pnum >= MAX_PLRS) {
-		app_fatal("StripTopGold: illegal player %i", pnum);
-	}
-	auto &player = Players[pnum];
+	Item tmpItem = player.HoldItem;
 
-	ItemStruct tmpItem = player.HoldItem;
-
-	for (int i = 0; i < player._pNumInv; i++) {
-		if (player.InvList[i]._itype == ITYPE_GOLD) {
-			if (player.InvList[i]._ivalue > MaxGold) {
-				int val = player.InvList[i]._ivalue - MaxGold;
-				player.InvList[i]._ivalue = MaxGold;
-				SetPlrHandItem(&player.HoldItem, 0);
-				GetGoldSeed(pnum, &player.HoldItem);
+	for (Item &item : InventoryPlayerItemsRange { player }) {
+		if (item._itype == ItemType::Gold) {
+			if (item._ivalue > MaxGold) {
+				int val = item._ivalue - MaxGold;
+				item._ivalue = MaxGold;
+				SetPlrHandItem(player.HoldItem, 0);
+				SetGoldSeed(player, player.HoldItem);
 				player.HoldItem._ivalue = val;
-				SetPlrHandGoldCurs(&player.HoldItem);
+				SetPlrHandGoldCurs(player.HoldItem);
 				if (!GoldAutoPlace(player))
 					DeadItem(player, &player.HoldItem, { 0, 0 });
 			}
@@ -3144,31 +3081,25 @@ void ApplyPlrDamage(int pnum, int dam, int minHP /*= 0*/, int frac /*= 0*/, int 
 	auto &player = Players[pnum];
 
 	int totalDamage = (dam << 6) + frac;
-	if (totalDamage > 0) {
-		for (int i = 0; i < ActiveMissileCount; i++) {
-			int ma = ActiveMissiles[i];
-			auto &missile = Missiles[ma];
-			if (missile._mitype == MIS_MANASHIELD && missile._misource == pnum && !missile._miDelFlag) {
-				if (missile._mispllvl > 0) {
-					totalDamage += totalDamage / -3;
-				}
-
-				drawmanaflag = true;
-				if (player._pMana >= totalDamage) {
-					player._pMana -= totalDamage;
-					player._pManaBase -= totalDamage;
-					totalDamage = 0;
-				} else {
-					totalDamage -= player._pMana;
-					if (missile._mispllvl > 0) {
-						totalDamage += totalDamage / 2;
-					}
-					player._pMana = 0;
-					player._pManaBase = player._pMaxManaBase - player._pMaxMana;
-				}
-
-				break;
+	if (totalDamage > 0 && player.pManaShield) {
+		int8_t manaShieldLevel = player._pSplLvl[SPL_MANASHIELD];
+		if (manaShieldLevel > 0) {
+			totalDamage += totalDamage / -3;
+		}
+		if (pnum == MyPlayerId)
+			drawmanaflag = true;
+		if (player._pMana >= totalDamage) {
+			player._pMana -= totalDamage;
+			player._pManaBase -= totalDamage;
+			totalDamage = 0;
+		} else {
+			totalDamage -= player._pMana;
+			if (manaShieldLevel > 0) {
+				totalDamage += totalDamage / 2;
 			}
+			player._pMana = 0;
+			player._pManaBase = player._pMaxManaBase - player._pMaxMana;
+			NetSendCmd(true, CMD_REMSHIELD);
 		}
 	}
 
@@ -3184,7 +3115,7 @@ void ApplyPlrDamage(int pnum, int dam, int minHP /*= 0*/, int frac /*= 0*/, int 
 	}
 	int minHitPoints = minHP << 6;
 	if (player._pHitPoints < minHitPoints) {
-		SetPlayerHitPoints(pnum, minHitPoints);
+		SetPlayerHitPoints(player, minHitPoints);
 	}
 	if (player._pHitPoints >> 6 <= 0) {
 		SyncPlrKill(pnum, earflag);
@@ -3196,11 +3127,11 @@ void SyncPlrKill(int pnum, int earflag)
 	auto &player = Players[pnum];
 
 	if (player._pHitPoints <= 0 && currlevel == 0) {
-		SetPlayerHitPoints(pnum, 64);
+		SetPlayerHitPoints(player, 64);
 		return;
 	}
 
-	SetPlayerHitPoints(pnum, 0);
+	SetPlayerHitPoints(player, 0);
 	StartPlayerKill(pnum, earflag);
 }
 
@@ -3210,7 +3141,7 @@ void RemovePlrMissiles(int pnum)
 		auto &golem = Monsters[MyPlayerId];
 		if (golem.position.tile.x != 1 || golem.position.tile.y != 0) {
 			M_StartKill(MyPlayerId, MyPlayerId);
-			AddDead(golem.position.tile, golem.MType->mdeadval, golem._mdir);
+			AddCorpse(golem.position.tile, golem.MType->mdeadval, golem._mdir);
 			int mx = golem.position.tile.x;
 			int my = golem.position.tile.y;
 			dMonster[mx][my] = 0;
@@ -3223,11 +3154,7 @@ void RemovePlrMissiles(int pnum)
 		int am = ActiveMissiles[i];
 		auto &missile = Missiles[am];
 		if (missile._mitype == MIS_STONE && missile._misource == pnum) {
-			Monsters[missile._miVar2]._mmode = (MON_MODE)missile._miVar1;
-		}
-		if (missile._mitype == MIS_MANASHIELD && missile._misource == pnum) {
-			ClearMissileSpot(missile);
-			DeleteMissile(am, i);
+			Monsters[missile.var2]._mmode = static_cast<MonsterMode>(missile.var1);
 		}
 	}
 }
@@ -3287,12 +3214,12 @@ void RestartTownLvl(int pnum)
 	player.plrlevel = 0;
 	player._pInvincible = false;
 
-	SetPlayerHitPoints(pnum, 64);
+	SetPlayerHitPoints(player, 64);
 
 	player._pMana = 0;
 	player._pManaBase = player._pMana - (player._pMaxMana - player._pMaxManaBase);
 
-	CalcPlrInv(pnum, false);
+	CalcPlrInv(player, false);
 
 	if (pnum == MyPlayerId) {
 		player._pmode = PM_NEWLVL;
@@ -3418,7 +3345,7 @@ void ProcessPlayers()
 	}
 }
 
-void ClrPlrPath(PlayerStruct &player)
+void ClrPlrPath(Player &player)
 {
 	memset(player.walkpath, WALK_NONE, sizeof(player.walkpath));
 }
@@ -3426,14 +3353,14 @@ void ClrPlrPath(PlayerStruct &player)
 /**
  * @brief Determines if the target position is clear for the given player to stand on.
  *
- * This requires an ID instead of a PlayerStruct& to compare with the dPlayer lookup table values.
+ * This requires an ID instead of a Player& to compare with the dPlayer lookup table values.
  *
  * @param position Dungeon tile coordinates.
  * @return False if something (other than the player themselves) is blocking the tile.
  */
-bool PosOkPlayer(const PlayerStruct &player, Point position)
+bool PosOkPlayer(const Player &player, Point position)
 {
-	if (position.x < 0 || position.x >= MAXDUNX || position.y < 0 || position.y >= MAXDUNY)
+	if (!InDungeonBounds(position))
 		return false;
 	if (dPiece[position.x][position.y] == 0)
 		return false;
@@ -3461,7 +3388,7 @@ bool PosOkPlayer(const PlayerStruct &player, Point position)
 	return true;
 }
 
-void MakePlrPath(PlayerStruct &player, Point targetPosition, bool endspace)
+void MakePlrPath(Player &player, Point targetPosition, bool endspace)
 {
 	if (player.position.future == targetPosition) {
 		return;
@@ -3479,7 +3406,7 @@ void MakePlrPath(PlayerStruct &player, Point targetPosition, bool endspace)
 	player.walkpath[path] = WALK_NONE;
 }
 
-void CalcPlrStaff(PlayerStruct &player)
+void CalcPlrStaff(Player &player)
 {
 	player._pISpells = 0;
 	if (!player.InvBody[INVLOC_HAND_LEFT].isEmpty()
@@ -3489,7 +3416,7 @@ void CalcPlrStaff(PlayerStruct &player)
 	}
 }
 
-void CheckPlrSpell()
+void CheckPlrSpell(bool isShiftHeld)
 {
 	bool addflag = false;
 	int sl;
@@ -3566,21 +3493,21 @@ void CheckPlrSpell()
 
 	if (myPlayer._pRSpell == SPL_FIREWALL || myPlayer._pRSpell == SPL_LIGHTWALL) {
 		LastMouseButtonAction = MouseActionType::Spell;
-		Direction sd = GetDirection(myPlayer.position.tile, { cursmx, cursmy });
+		Direction sd = GetDirection(myPlayer.position.tile, cursPosition);
 		sl = GetSpellLevel(MyPlayerId, myPlayer._pRSpell);
-		NetSendCmdLocParam3(true, CMD_SPELLXYD, { cursmx, cursmy }, myPlayer._pRSpell, sd, sl);
-	} else if (pcursmonst != -1) {
+		NetSendCmdLocParam4(true, CMD_SPELLXYD, cursPosition, myPlayer._pRSpell, myPlayer._pRSplType, static_cast<uint16_t>(sd), sl);
+	} else if (pcursmonst != -1 && !isShiftHeld) {
 		LastMouseButtonAction = MouseActionType::SpellMonsterTarget;
 		sl = GetSpellLevel(MyPlayerId, myPlayer._pRSpell);
-		NetSendCmdParam3(true, CMD_SPELLID, pcursmonst, myPlayer._pRSpell, sl);
-	} else if (pcursplr != -1) {
+		NetSendCmdParam4(true, CMD_SPELLID, pcursmonst, myPlayer._pRSpell, myPlayer._pRSplType, sl);
+	} else if (pcursplr != -1 && !isShiftHeld) {
 		LastMouseButtonAction = MouseActionType::SpellPlayerTarget;
 		sl = GetSpellLevel(MyPlayerId, myPlayer._pRSpell);
-		NetSendCmdParam3(true, CMD_SPELLPID, pcursplr, myPlayer._pRSpell, sl);
+		NetSendCmdParam4(true, CMD_SPELLPID, pcursplr, myPlayer._pRSpell, myPlayer._pRSplType, sl);
 	} else {
 		LastMouseButtonAction = MouseActionType::Spell;
 		sl = GetSpellLevel(MyPlayerId, myPlayer._pRSpell);
-		NetSendCmdLocParam2(true, CMD_SPELLXY, { cursmx, cursmy }, myPlayer._pRSpell, sl);
+		NetSendCmdLocParam3(true, CMD_SPELLXY, cursPosition, myPlayer._pRSpell, myPlayer._pRSplType, sl);
 	}
 }
 
@@ -3636,7 +3563,9 @@ void SyncPlrAnim(int pnum)
 		app_fatal("SyncPlrAnim");
 	}
 
-	player.AnimInfo.pCelSprite = &*player.AnimationData[static_cast<size_t>(graphic)].CelSpritesForDirections[player._pdir];
+	player.AnimInfo.pCelSprite = &*player.AnimationData[static_cast<size_t>(graphic)].CelSpritesForDirections[static_cast<size_t>(player._pdir)];
+	// Ensure ScrollInfo is initialized correctly
+	ScrollViewPort(player, WalkSettings[static_cast<size_t>(player._pdir)].scrollDir);
 }
 
 void SyncInitPlrPos(int pnum)
@@ -3647,36 +3576,30 @@ void SyncInitPlrPos(int pnum)
 		return;
 	}
 
-	Point position = {};
-	for (int i = 0; i < 8; i++) {
-		position = player.position.tile + Displacement { plrxoff2[i], plryoff2[i] };
-		if (PosOkPlayer(player, position)) {
-			break;
+	Point position = [&]() {
+		for (int i = 0; i < 8; i++) {
+			Point position = player.position.tile + Displacement { plrxoff2[i], plryoff2[i] };
+			if (PosOkPlayer(player, position))
+				return position;
 		}
-	}
 
-	if (!PosOkPlayer(player, position)) {
-		bool posOk = false;
-		for (int range = 1; range < 50 && !posOk; range++) {
-			for (int yy = -range; yy <= range && !posOk; yy++) {
-				position.y = yy + player.position.tile.y;
-				for (int xx = -range; xx <= range && !posOk; xx++) {
-					position.x = xx + player.position.tile.x;
-					if (PosOkPlayer(player, position) && !PosOkPortal(currlevel, position.x, position.y)) {
-						posOk = true;
-					}
-				}
-			}
-		}
-	}
+		std::optional<Point> nearPosition = FindClosestValidPosition(
+		    [&player](Point testPosition) {
+			    return PosOkPlayer(player, testPosition) && !PosOkPortal(currlevel, testPosition.x, testPosition.y);
+		    },
+		    player.position.tile,
+		    1, // skip the starting tile since that was checked in the previous loop
+		    50);
+
+		return nearPosition.value_or(Point { 0, 0 });
+	}();
 
 	player.position.tile = position;
 	dPlayer[position.x][position.y] = pnum + 1;
 
 	if (pnum == MyPlayerId) {
 		player.position.future = position;
-		ViewX = position.x;
-		ViewY = position.y;
+		ViewPosition = position;
 	}
 }
 
@@ -3689,9 +3612,11 @@ void SyncInitPlr(int pnum)
 
 	SetPlrAnims(player);
 	SyncInitPlrPos(pnum);
+	if (pnum != MyPlayerId)
+		player._plid = NO_LIGHT;
 }
 
-void CheckStats(PlayerStruct &player)
+void CheckStats(Player &player)
 {
 	for (auto attribute : enum_values<CharacterAttribute>()) {
 		int maxStatPoint = player.GetMaximumAttributeValue(attribute);
@@ -3727,7 +3652,7 @@ void ModifyPlrStr(int p, int l)
 	player._pStrength += l;
 	player._pBaseStr += l;
 
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 
 	if (p == MyPlayerId) {
 		NetSendCmdParam1(false, CMD_SETSTR, player._pBaseStr);
@@ -3763,7 +3688,7 @@ void ModifyPlrMag(int p, int l)
 		player._pMana += ms;
 	}
 
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 
 	if (p == MyPlayerId) {
 		NetSendCmdParam1(false, CMD_SETMAG, player._pBaseMag);
@@ -3784,7 +3709,7 @@ void ModifyPlrDex(int p, int l)
 
 	player._pDexterity += l;
 	player._pBaseDex += l;
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 
 	if (p == MyPlayerId) {
 		NetSendCmdParam1(false, CMD_SETDEX, player._pBaseDex);
@@ -3816,51 +3741,34 @@ void ModifyPlrVit(int p, int l)
 	player._pHitPoints += ms;
 	player._pMaxHP += ms;
 
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 
 	if (p == MyPlayerId) {
 		NetSendCmdParam1(false, CMD_SETVIT, player._pBaseVit);
 	}
 }
 
-void SetPlayerHitPoints(int pnum, int val)
+void SetPlayerHitPoints(Player &player, int val)
 {
-	if ((DWORD)pnum >= MAX_PLRS) {
-		app_fatal("SetPlayerHitPoints: illegal player %i", pnum);
-	}
-	auto &player = Players[pnum];
-
 	player._pHitPoints = val;
 	player._pHPBase = val + player._pMaxHPBase - player._pMaxHP;
 
-	if (pnum == MyPlayerId) {
+	if (&player == &Players[MyPlayerId]) {
 		drawhpflag = true;
 	}
 }
 
-void SetPlrStr(int p, int v)
+void SetPlrStr(Player &player, int v)
 {
-	if ((DWORD)p >= MAX_PLRS) {
-		app_fatal("SetPlrStr: illegal player %i", p);
-	}
-	auto &player = Players[p];
-
 	player._pBaseStr = v;
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 }
 
-void SetPlrMag(int p, int v)
+void SetPlrMag(Player &player, int v)
 {
-	int m;
-
-	if ((DWORD)p >= MAX_PLRS) {
-		app_fatal("SetPlrMag: illegal player %i", p);
-	}
-	auto &player = Players[p];
-
 	player._pBaseMag = v;
 
-	m = v << 6;
+	int m = v << 6;
 	if (player._pClass == HeroClass::Sorcerer) {
 		m *= 2;
 	} else if (player._pClass == HeroClass::Bard) {
@@ -3869,42 +3777,30 @@ void SetPlrMag(int p, int v)
 
 	player._pMaxManaBase = m;
 	player._pMaxMana = m;
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 }
 
-void SetPlrDex(int p, int v)
+void SetPlrDex(Player &player, int v)
 {
-	if ((DWORD)p >= MAX_PLRS) {
-		app_fatal("SetPlrDex: illegal player %i", p);
-	}
-	auto &player = Players[p];
-
 	player._pBaseDex = v;
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 }
 
-void SetPlrVit(int p, int v)
+void SetPlrVit(Player &player, int v)
 {
-	int hp;
-
-	if ((DWORD)p >= MAX_PLRS) {
-		app_fatal("SetPlrVit: illegal player %i", p);
-	}
-	auto &player = Players[p];
-
 	player._pBaseVit = v;
 
-	hp = v << 6;
+	int hp = v << 6;
 	if (player._pClass == HeroClass::Warrior || player._pClass == HeroClass::Barbarian) {
 		hp *= 2;
 	}
 
 	player._pHPBase = hp;
 	player._pMaxHPBase = hp;
-	CalcPlrInv(p, true);
+	CalcPlrInv(player, true);
 }
 
-void InitDungMsgs(PlayerStruct &player)
+void InitDungMsgs(Player &player)
 {
 	player.pDungMsgs = 0;
 	player.pDungMsgs2 = 0;

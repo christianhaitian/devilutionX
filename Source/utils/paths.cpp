@@ -4,22 +4,10 @@
 
 #include "utils/file_util.h"
 #include "utils/log.hpp"
-#include "utils/stdcompat/optional.hpp"
+#include "utils/sdl_ptrs.h"
 
 #ifdef USE_SDL1
 #include "utils/sdl2_to_1_2_backports.h"
-#endif
-
-#ifndef TTF_FONT_DIR
-#define TTF_FONT_DIR ""
-#endif
-
-#ifndef TTF_FONT_NAME
-#define TTF_FONT_NAME "CharisSILB.ttf"
-#endif
-
-#ifndef MO_LANG_DIR
-#define MO_LANG_DIR ""
 #endif
 
 namespace devilution {
@@ -28,12 +16,12 @@ namespace paths {
 
 namespace {
 
+std::optional<std::string> appPath;
 std::optional<std::string> basePath;
 std::optional<std::string> prefPath;
 std::optional<std::string> configPath;
-std::optional<std::string> langPath;
-std::optional<std::string> ttfPath;
-std::optional<std::string> ttfName;
+std::optional<std::string> assetsPath;
+std::optional<std::string> mpqDir;
 
 void AddTrailingSlash(std::string &path)
 {
@@ -48,10 +36,9 @@ void AddTrailingSlash(std::string &path)
 
 std::string FromSDL(char *s)
 {
+	SDLUniquePtr<char> pinned(s);
 	std::string result = (s != nullptr ? s : "");
-	if (s != nullptr) {
-		SDL_free(s);
-	} else {
+	if (s == nullptr) {
 		Log("{}", SDL_GetError());
 		SDL_ClearError();
 	}
@@ -60,10 +47,18 @@ std::string FromSDL(char *s)
 
 } // namespace
 
+const std::string &AppPath()
+{
+	if (!appPath) {
+		appPath = FromSDL(SDL_GetBasePath());
+	}
+	return *appPath;
+}
+
 const std::string &BasePath()
 {
 	if (!basePath) {
-		basePath = FromSDL(SDL_GetBasePath());
+		basePath = AppPath();
 	}
 	return *basePath;
 }
@@ -90,25 +85,16 @@ const std::string &ConfigPath()
 	return *configPath;
 }
 
-const std::string &LangPath()
+const std::string &AssetsPath()
 {
-	if (!langPath)
-		langPath.emplace(MO_LANG_DIR);
-	return *langPath;
+	if (!assetsPath)
+		assetsPath.emplace(AppPath() + "assets/");
+	return *assetsPath;
 }
 
-const std::string &TtfPath()
+const std::optional<std::string> &MpqDir()
 {
-	if (!ttfPath)
-		ttfPath.emplace(TTF_FONT_DIR);
-	return *ttfPath;
-}
-
-const std::string &TtfName()
-{
-	if (!ttfName)
-		ttfName.emplace(TTF_FONT_NAME);
-	return *ttfName;
+	return mpqDir;
 }
 
 void SetBasePath(const std::string &path)
@@ -129,21 +115,9 @@ void SetConfigPath(const std::string &path)
 	AddTrailingSlash(*configPath);
 }
 
-void SetLangPath(const std::string &path)
+void SetMpqDir(const std::string &path)
 {
-	langPath = path;
-	AddTrailingSlash(*langPath);
-}
-
-void SetTtfPath(const std::string &path)
-{
-	ttfPath = path;
-	AddTrailingSlash(*ttfPath);
-}
-
-void SetTtfName(const std::string &name)
-{
-	ttfName = name;
+	mpqDir = std::string(path);
 }
 
 } // namespace paths

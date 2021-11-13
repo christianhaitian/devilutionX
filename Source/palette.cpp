@@ -19,6 +19,8 @@ SDL_Color system_palette[256];
 SDL_Color orig_palette[256];
 Uint8 paletteTransparencyLookup[256][256];
 
+uint16_t paletteTransparencyLookupBlack16[65536];
+
 namespace {
 
 /** Specifies whether the palette has max brightness. */
@@ -86,6 +88,17 @@ void GenerateBlendedLookupTable(SDL_Color *palette, int skipFrom, int skipTo, in
 			blendedColor.b = ((int)palette[i].b + (int)palette[j].b) / 2;
 			Uint8 best = FindBestMatchForColor(palette, blendedColor, skipFrom, skipTo);
 			paletteTransparencyLookup[i][j] = best;
+		}
+	}
+
+	for (unsigned i = 0; i < 256; ++i) {
+		for (unsigned j = 0; j < 256; ++j) {
+#if SDL_BYTEORDER == SDL_LIL_ENDIAN
+			const std::uint16_t index = i | (j << 8);
+#else
+			const std::uint16_t index = j | (i << 8);
+#endif
+			paletteTransparencyLookupBlack16[index] = paletteTransparencyLookup[0][i] | (paletteTransparencyLookup[0][j] << 8);
 		}
 	}
 }
@@ -160,10 +173,10 @@ void CycleColorsReverse(int from, int to)
 
 } // namespace
 
-void palette_update()
+void palette_update(int first, int ncolor)
 {
 	assert(Palette);
-	if (SDLC_SetSurfaceAndPaletteColors(pal_surface, Palette, system_palette, 0, 256) < 0) {
+	if (SDLC_SetSurfaceAndPaletteColors(PalSurface, Palette.get(), system_palette, first, ncolor) < 0) {
 		ErrSdl();
 	}
 	pal_surface_palette_version++;
@@ -345,7 +358,7 @@ void PaletteFadeOut(int fr)
 void palette_update_caves()
 {
 	CycleColors(1, 31);
-	palette_update();
+	palette_update(0, 31);
 }
 
 void palette_update_crypt()
@@ -361,7 +374,7 @@ void palette_update_crypt()
 	}
 	if (glowDelay > 0) {
 		CycleColorsReverse(16, 31);
-		palette_update();
+		palette_update(0, 31);
 		glowDelay++;
 	} else {
 		glowDelay = 1;
@@ -381,7 +394,7 @@ void palette_update_hive()
 	}
 	if (bubbleDelay == 2) {
 		CycleColorsReverse(9, 15);
-		palette_update();
+		palette_update(0, 15);
 		bubbleDelay = 0;
 	} else {
 		bubbleDelay++;
@@ -393,7 +406,7 @@ void palette_update_quest_palette(int n)
 	int i = 32 - n;
 	logical_palette[i] = orig_palette[i];
 	ApplyGamma(system_palette, logical_palette, 32);
-	palette_update();
+	palette_update(0, 31);
 	if (sgOptions.Graphics.bBlendedTransparancy) {
 		// Update blended transparency, but only for the color that was updated
 		for (int j = 0; j < 256; j++) {

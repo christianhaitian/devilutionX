@@ -14,10 +14,10 @@
 
 namespace devilution {
 
-LightStruct VisionList[MAXVISION];
+Light VisionList[MAXVISION];
 int VisionCount;
 int VisionId;
-LightStruct Lights[MAXLIGHTS];
+Light Lights[MAXLIGHTS];
 uint8_t ActiveLights[MAXLIGHTS];
 int ActiveLightCount;
 char LightsMax;
@@ -414,6 +414,8 @@ const int8_t CrawlTable[2749] = {
 	// clang-format on
 };
 
+const int CrawlNum[19] = { 0, 3, 12, 45, 94, 159, 240, 337, 450, 579, 724, 885, 1062, 1255, 1464, 1689, 1930, 2187, 2460 };
+
 /*
  * X- Y-coordinate offsets of lighting visions.
  * The last entry-pair is only for alignment.
@@ -512,7 +514,7 @@ void DoUnLight(int nXPos, int nYPos, int nRadius)
 
 	for (int y = minY; y < maxY; y++) {
 		for (int x = minX; x < maxX; x++) {
-			if (x >= 0 && x < MAXDUNX && y >= 0 && y < MAXDUNY)
+			if (InDungeonBounds({ x, y }))
 				dLight[x][y] = dPreLight[x][y];
 		}
 	}
@@ -562,7 +564,7 @@ void DoLighting(Point position, int nRadius, int lnum)
 		maxY = MAXDUNY - position.y;
 	}
 
-	if (position.x >= 0 && position.x < MAXDUNX && position.y >= 0 && position.y < MAXDUNY) {
+	if (InDungeonBounds(position)) {
 		if (currlevel < 17) {
 			SetLight(position, 0);
 		} else if (GetLight(position) > lightradius[nRadius][0]) {
@@ -577,7 +579,7 @@ void DoLighting(Point position, int nRadius, int lnum)
 			if (radiusBlock < 128) {
 				Point temp = position + Displacement { x, y };
 				int8_t v = lightradius[nRadius][radiusBlock];
-				if (temp.x >= 0 && temp.x < MAXDUNX && temp.y >= 0 && temp.y < MAXDUNY)
+				if (InDungeonBounds(temp))
 					if (v < GetLight(temp))
 						SetLight(temp, v);
 			}
@@ -591,7 +593,7 @@ void DoLighting(Point position, int nRadius, int lnum)
 			if (radiusBlock < 128) {
 				Point temp = position + Displacement { y, -x };
 				int8_t v = lightradius[nRadius][radiusBlock];
-				if (temp.x >= 0 && temp.x < MAXDUNX && temp.y >= 0 && temp.y < MAXDUNY)
+				if (InDungeonBounds(temp))
 					if (v < GetLight(temp))
 						SetLight(temp, v);
 			}
@@ -605,7 +607,7 @@ void DoLighting(Point position, int nRadius, int lnum)
 			if (radiusBlock < 128) {
 				Point temp = position - Displacement { x, y };
 				int8_t v = lightradius[nRadius][radiusBlock];
-				if (temp.x >= 0 && temp.x < MAXDUNX && temp.y >= 0 && temp.y < MAXDUNY)
+				if (InDungeonBounds(temp))
 					if (v < GetLight(temp))
 						SetLight(temp, v);
 			}
@@ -619,7 +621,7 @@ void DoLighting(Point position, int nRadius, int lnum)
 			if (radiusBlock < 128) {
 				Point temp = position + Displacement { -y, x };
 				int8_t v = lightradius[nRadius][radiusBlock];
-				if (temp.x >= 0 && temp.x < MAXDUNX && temp.y >= 0 && temp.y < MAXDUNY)
+				if (InDungeonBounds(temp))
 					if (v < GetLight(temp))
 						SetLight(temp, v);
 			}
@@ -638,25 +640,24 @@ void DoUnVision(Point position, int nRadius)
 
 	for (int i = x1; i < x2; i++) {
 		for (int j = y1; j < y2; j++) {
-			dFlags[i][j] &= ~(BFLAG_VISIBLE | BFLAG_LIT);
+			dFlags[i][j] &= ~(DungeonFlag::Visible | DungeonFlag::Lit);
 		}
 	}
 }
 
-void DoVision(Point position, int nRadius, bool doautomap, bool visible)
+void DoVision(Point position, int nRadius, MapExplorationType doautomap, bool visible)
 {
-
-	if (position.x >= 0 && position.x <= MAXDUNX && position.y >= 0 && position.y <= MAXDUNY) {
-		if (doautomap) {
-			if (dFlags[position.x][position.y] != 0) {
-				SetAutomapView(position);
+	if (InDungeonBounds(position)) {
+		if (doautomap != MAP_EXP_NONE) {
+			if (dFlags[position.x][position.y] != DungeonFlag::None) {
+				SetAutomapView(position, doautomap);
 			}
-			dFlags[position.x][position.y] |= BFLAG_EXPLORED;
+			dFlags[position.x][position.y] |= DungeonFlag::Explored;
 		}
 		if (visible) {
-			dFlags[position.x][position.y] |= BFLAG_LIT;
+			dFlags[position.x][position.y] |= DungeonFlag::Lit;
 		}
-		dFlags[position.x][position.y] |= BFLAG_VISIBLE;
+		dFlags[position.x][position.y] |= DungeonFlag::Visible;
 	}
 
 	for (int v = 0; v < 4; v++) {
@@ -704,22 +705,22 @@ void DoVision(Point position, int nRadius, bool doautomap, bool visible)
 					}
 					break;
 				}
-				if (nCrawlX >= 0 && nCrawlX < MAXDUNX && nCrawlY >= 0 && nCrawlY < MAXDUNY) {
+				if (InDungeonBounds({ nCrawlX, nCrawlY })) {
 					nBlockerFlag = nBlockTable[dPiece[nCrawlX][nCrawlY]];
-					if ((x1adj + nCrawlX >= 0 && x1adj + nCrawlX < MAXDUNX && y1adj + nCrawlY >= 0 && y1adj + nCrawlY < MAXDUNY
+					if ((InDungeonBounds({ x1adj + nCrawlX, y1adj + nCrawlY })
 					        && !nBlockTable[dPiece[x1adj + nCrawlX][y1adj + nCrawlY]])
-					    || (x2adj + nCrawlX >= 0 && x2adj + nCrawlX < MAXDUNX && y2adj + nCrawlY >= 0 && y2adj + nCrawlY < MAXDUNY
+					    || (InDungeonBounds({ x2adj + nCrawlX, y2adj + nCrawlY })
 					        && !nBlockTable[dPiece[x2adj + nCrawlX][y2adj + nCrawlY]])) {
-						if (doautomap) {
-							if (dFlags[nCrawlX][nCrawlY] != 0) {
-								SetAutomapView({ nCrawlX, nCrawlY });
+						if (doautomap != MAP_EXP_NONE) {
+							if (dFlags[nCrawlX][nCrawlY] != DungeonFlag::None) {
+								SetAutomapView({ nCrawlX, nCrawlY }, doautomap);
 							}
-							dFlags[nCrawlX][nCrawlY] |= BFLAG_EXPLORED;
+							dFlags[nCrawlX][nCrawlY] |= DungeonFlag::Explored;
 						}
 						if (visible) {
-							dFlags[nCrawlX][nCrawlY] |= BFLAG_LIT;
+							dFlags[nCrawlX][nCrawlY] |= DungeonFlag::Lit;
 						}
-						dFlags[nCrawlX][nCrawlY] |= BFLAG_VISIBLE;
+						dFlags[nCrawlX][nCrawlY] |= DungeonFlag::Visible;
 						if (!nBlockerFlag) {
 							int8_t nTrans = dTransVal[nCrawlX][nCrawlY];
 							if (nTrans != 0) {
@@ -1170,7 +1171,7 @@ void ProcessVisionList()
 		DoVision(
 		    vision.position.tile,
 		    vision._lradius,
-		    vision._lflags,
+		    vision._lflags ? MAP_EXP_SELF : MAP_EXP_OTHERS,
 		    vision._lflags);
 	}
 	bool delflag;

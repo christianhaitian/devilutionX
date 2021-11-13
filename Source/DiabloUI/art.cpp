@@ -4,11 +4,12 @@
 #include <cstdint>
 #include <memory>
 
-#include "storm/storm.h"
+#include "engine/game_assets.hpp"
 #include "utils/display.h"
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/sdl_wrap.h"
+#include "utils/pcx.hpp"
 
 namespace devilution {
 namespace {
@@ -16,10 +17,10 @@ constexpr size_t PcxHeaderSize = 128;
 constexpr unsigned NumPaletteColors = 256;
 constexpr unsigned PcxPaletteSize = 1 + NumPaletteColors * 3;
 
-bool LoadPcxMeta(HANDLE handle, int &width, int &height, std::uint8_t &bpp)
+bool LoadPcxMeta(SDL_RWops *handle, int &width, int &height, std::uint8_t &bpp)
 {
 	PCXHeader pcxhdr;
-	if (!SFileReadFileThreadSafe(handle, &pcxhdr, PcxHeaderSize)) {
+	if (SDL_RWread(handle, &pcxhdr, PcxHeaderSize, 1) == 0) {
 		return false;
 	}
 	width = SDL_SwapLE16(pcxhdr.Xmax) - SDL_SwapLE16(pcxhdr.Xmin) + 1;
@@ -28,11 +29,11 @@ bool LoadPcxMeta(HANDLE handle, int &width, int &height, std::uint8_t &bpp)
 	return true;
 }
 
-bool LoadPcxPixelsAndPalette(HANDLE handle, int width, int height, std::uint8_t bpp,
-    BYTE *buffer, std::size_t bufferPitch, SDL_Color *palette)
+bool LoadPcxPixelsAndPalette(SDL_RWops *handle, int width, int height, std::uint8_t bpp,
+    uint8_t *buffer, std::size_t bufferPitch, SDL_Color *palette)
 {
 	const bool has256ColorPalette = palette != nullptr && bpp == 8;
-	std::uint32_t pixelDataSize = SFileGetFileSize(handle);
+	std::uint32_t pixelDataSize = SDL_RWsize(handle);
 	if (pixelDataSize == static_cast<std::uint32_t>(-1)) {
 		return false;
 	}
@@ -40,13 +41,13 @@ bool LoadPcxPixelsAndPalette(HANDLE handle, int width, int height, std::uint8_t 
 
 	// We read 1 extra byte because it delimits the palette.
 	const size_t readSize = pixelDataSize + (has256ColorPalette ? PcxPaletteSize : 0);
-	std::unique_ptr<BYTE[]> fileBuffer { new BYTE[readSize] };
-	if (!SFileReadFileThreadSafe(handle, fileBuffer.get(), readSize)) {
+	std::unique_ptr<uint8_t[]> fileBuffer { new uint8_t[readSize] };
+	if (SDL_RWread(handle, fileBuffer.get(), readSize, 1) == 0) {
 		return false;
 	}
 	const unsigned xSkip = bufferPitch - width;
 	const unsigned srcSkip = width % 2;
-	BYTE *dataPtr = fileBuffer.get();
+	uint8_t *dataPtr = fileBuffer.get();
 	for (int j = 0; j < height; j++) {
 		for (int x = 0; x < width;) {
 			constexpr std::uint8_t PcxMaxSinglePixel = 0xBF;
@@ -101,35 +102,42 @@ Uint32 GetPcxSdlPixelFormat(unsigned bpp)
 
 } // namespace
 
-void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette)
+void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette, const std::array<uint8_t, 256> *colorMapping)
 {
 	if (art == nullptr || art->surface != nullptr)
 		return;
 
 	art->frames = frames;
 
-	HANDLE handle;
 	int width;
 	int height;
 	std::uint8_t bpp;
-	if (!SFileOpenFile(pszFile, &handle)) {
+	SDL_RWops *handle = OpenAsset(pszFile);
+	if (handle == nullptr) {
 		return;
 	}
 
 	if (!LoadPcxMeta(handle, width, height, bpp)) {
-		Log("LoadArt(\"{}\"): LoadPcxMeta failed with code {}", pszFile, SErrGetLastError());
-		SFileCloseFileThreadSafe(handle);
+		Log("LoadArt(\"{}\"): LoadPcxMeta failed with code {}", pszFile, SDL_GetError());
+		SDL_RWclose(handle);
 		return;
 	}
 
 	SDLSurfaceUniquePtr artSurface = SDLWrap::CreateRGBSurfaceWithFormat(SDL_SWSURFACE, width, height, bpp, GetPcxSdlPixelFormat(bpp));
-	if (!LoadPcxPixelsAndPalette(handle, width, height, bpp, static_cast<BYTE *>(artSurface->pixels),
+	if (!LoadPcxPixelsAndPalette(handle, width, height, bpp, static_cast<uint8_t *>(artSurface->pixels),
 	        artSurface->pitch, pPalette)) {
-		Log("LoadArt(\"{}\"): LoadPcxPixelsAndPalette failed with code {}", pszFile, SErrGetLastError());
-		SFileCloseFileThreadSafe(handle);
+		Log("LoadArt(\"{}\"): LoadPcxPixelsAndPalette failed with code {}", pszFile, SDL_GetError());
+		SDL_RWclose(handle);
 		return;
 	}
-	SFileCloseFileThreadSafe(handle);
+	SDL_RWclose(handle);
+
+	if (colorMapping != nullptr) {
+		for (int i = 0; i < artSurface->h * artSurface->pitch; i++) {
+			auto &pixel = static_cast<uint8_t *>(artSurface->pixels)[i];
+			pixel = (*colorMapping)[pixel];
+		}
+	}
 
 	art->logical_width = artSurface->w;
 	art->frame_height = height / frames;
@@ -137,9 +145,9 @@ void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette)
 	art->surface = ScaleSurfaceToOutput(std::move(artSurface));
 }
 
-void LoadMaskedArt(const char *pszFile, Art *art, int frames, int mask)
+void LoadMaskedArt(const char *pszFile, Art *art, int frames, int mask, const std::array<uint8_t, 256> *colorMapping)
 {
-	LoadArt(pszFile, art, frames);
+	LoadArt(pszFile, art, frames, nullptr, colorMapping);
 	if (art->surface != nullptr)
 		SDLC_SetColorKey(art->surface.get(), mask);
 }
@@ -149,8 +157,8 @@ void LoadArt(Art *art, const std::uint8_t *artData, int w, int h, int frames)
 	constexpr int DefaultArtBpp = 8;
 	constexpr int DefaultArtFormat = SDL_PIXELFORMAT_INDEX8;
 	art->frames = frames;
-	art->surface = ScaleSurfaceToOutput(SDLSurfaceUniquePtr { SDL_CreateRGBSurfaceWithFormatFrom(
-	    const_cast<std::uint8_t *>(artData), w, h, DefaultArtBpp, w, DefaultArtFormat) });
+	art->surface = ScaleSurfaceToOutput(SDLWrap::CreateRGBSurfaceWithFormatFrom(
+	    const_cast<std::uint8_t *>(artData), w, h, DefaultArtBpp, w, DefaultArtFormat));
 	art->logical_width = w;
 	art->frame_height = h / frames;
 }

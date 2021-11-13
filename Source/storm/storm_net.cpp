@@ -1,3 +1,5 @@
+#include "storm/storm_net.hpp"
+
 #include <memory>
 #ifndef NONET
 #include "utils/sdl_mutex.h"
@@ -9,18 +11,31 @@
 #include "dvlnet/abstract_net.h"
 #include "menu.h"
 #include "options.h"
-#include "storm/storm_dvlnet.h"
 #include "utils/stubs.h"
 
 namespace devilution {
 
-static std::unique_ptr<net::abstract_net> dvlnet_inst;
-static char gpszGameName[128] = {};
-static char gpszGamePassword[128] = {};
+namespace {
+std::unique_ptr<net::abstract_net> dvlnet_inst;
+char gpszGameName[128] = {};
+char gpszGamePassword[128] = {};
+bool GameIsPublic = {};
+thread_local uint32_t dwLastError = 0;
 
 #ifndef NONET
-static SdlMutex storm_net_mutex;
+SdlMutex storm_net_mutex;
 #endif
+} // namespace
+
+uint32_t SErrGetLastError()
+{
+	return dwLastError;
+}
+
+void SErrSetLastError(uint32_t dwErrCode)
+{
+	dwLastError = dwErrCode;
+}
 
 bool SNetReceiveMessage(int *senderplayerid, void **data, uint32_t *databytes)
 {
@@ -93,6 +108,7 @@ bool SNetDestroy()
 #ifndef NONET
 	std::lock_guard<SdlMutex> lg(storm_net_mutex);
 #endif
+	dvlnet_inst = nullptr;
 	return true;
 }
 
@@ -165,8 +181,10 @@ bool SNetCreateGame(const char *pszGameName, const char *pszGamePassword, char *
 
 	strncpy(gpszGameName, pszGameName, sizeof(gpszGameName) - 1);
 	if (pszGamePassword != nullptr)
-		strncpy(gpszGamePassword, pszGamePassword, sizeof(gpszGamePassword) - 1);
-	*playerID = dvlnet_inst->create(pszGameName, pszGamePassword);
+		DvlNet_SetPassword(pszGamePassword);
+	else
+		DvlNet_ClearPassword();
+	*playerID = dvlnet_inst->create(pszGameName);
 	return *playerID != -1;
 }
 
@@ -178,8 +196,10 @@ bool SNetJoinGame(char *pszGameName, char *pszGamePassword, int *playerID)
 	if (pszGameName != nullptr)
 		strncpy(gpszGameName, pszGameName, sizeof(gpszGameName) - 1);
 	if (pszGamePassword != nullptr)
-		strncpy(gpszGamePassword, pszGamePassword, sizeof(gpszGamePassword) - 1);
-	*playerID = dvlnet_inst->join(pszGameName, pszGamePassword);
+		DvlNet_SetPassword(pszGamePassword);
+	else
+		DvlNet_ClearPassword();
+	*playerID = dvlnet_inst->join(pszGameName);
 	return *playerID != -1;
 }
 
@@ -218,6 +238,11 @@ void DvlNet_SendInfoRequest()
 	dvlnet_inst->send_info_request();
 }
 
+void DvlNet_ClearGamelist()
+{
+	return dvlnet_inst->clear_gamelist();
+}
+
 std::vector<std::string> DvlNet_GetGamelist()
 {
 	return dvlnet_inst->get_gamelist();
@@ -225,7 +250,21 @@ std::vector<std::string> DvlNet_GetGamelist()
 
 void DvlNet_SetPassword(std::string pw)
 {
+	GameIsPublic = false;
+	strncpy(gpszGamePassword, pw.c_str(), sizeof(gpszGamePassword) - 1);
 	dvlnet_inst->setup_password(std::move(pw));
+}
+
+void DvlNet_ClearPassword()
+{
+	GameIsPublic = true;
+	gpszGamePassword[0] = '\0';
+	dvlnet_inst->clear_password();
+}
+
+bool DvlNet_IsPublicGame()
+{
+	return GameIsPublic;
 }
 
 } // namespace devilution

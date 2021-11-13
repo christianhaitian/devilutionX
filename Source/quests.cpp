@@ -29,22 +29,21 @@ namespace devilution {
 bool QuestLogIsOpen;
 std::optional<CelSprite> pQLogCel;
 /** Contains the quests of the current game. */
-QuestStruct Quests[MAXQUESTS];
-int ReturnLvlX;
-int ReturnLvlY;
+Quest Quests[MAXQUESTS];
+Point ReturnLvlPosition;
 dungeon_type ReturnLevelType;
 int ReturnLevel;
 
 /** Contains the data related to each quest_id. */
-QuestDataStruct QuestData[] = {
+QuestData QuestsData[] = {
 	// clang-format off
 	// _qdlvl,  _qdmultlvl, _qlvlt,          bookOrder,   _qdrnd, _qslvl,          isSinglePlayerOnly, _qdmsg,        _qlstr
 	{       5,          -1, DTYPE_NONE,          5,      100,    SL_NONE,         true,               TEXT_INFRA5,   N_( /* TRANSLATORS: Quest Name Block */ "The Magic Rock")           },
 	{       9,          -1, DTYPE_NONE,         10,      100,    SL_NONE,         true,               TEXT_MUSH8,    N_("Black Mushroom")           },
 	{       4,          -1, DTYPE_NONE,          3,      100,    SL_NONE,         true,               TEXT_GARBUD1,  N_("Gharbad The Weak")         },
 	{       8,          -1, DTYPE_NONE,          9,      100,    SL_NONE,         true,               TEXT_ZHAR1,    N_("Zhar the Mad")             },
-	{      14,          -1, DTYPE_NONE,         21,      100,    SL_NONE,         true,               TEXT_VEIL9,    "Lachdanan"                    },
-	{      15,          -1, DTYPE_NONE,         23,      100,    SL_NONE,         false,              TEXT_VILE3,    "Diablo"                       },
+	{      14,          -1, DTYPE_NONE,         21,      100,    SL_NONE,         true,               TEXT_VEIL9,    N_("Lachdanan")                },
+	{      15,          -1, DTYPE_NONE,         23,      100,    SL_NONE,         false,              TEXT_VILE3,    N_("Diablo")                   },
 	{       2,           2, DTYPE_NONE,          0,      100,    SL_NONE,         false,              TEXT_BUTCH9,   N_("The Butcher")              },
 	{       4,          -1, DTYPE_NONE,          4,      100,    SL_NONE,         true,               TEXT_BANNER2,  N_("Ogden's Sign")             },
 	{       7,          -1, DTYPE_NONE,          8,      100,    SL_NONE,         true,               TEXT_BLINDING, N_("Halls of the Blind")       },
@@ -60,7 +59,7 @@ QuestDataStruct QuestData[] = {
 	{      17,          -1, DTYPE_NONE,         14,      100,    SL_NONE,         true,               TEXT_GIRL2,    N_("Little Girl")              },
 	{      19,          -1, DTYPE_NONE,         16,      100,    SL_NONE,         true,               TEXT_TRADER,   N_("Wandering Trader")         },
 	{      17,          17, DTYPE_NONE,         15,      100,    SL_NONE,         false,              TEXT_DEFILER1, N_("The Defiler")              },
-	{      21,          21, DTYPE_NONE,         19,      100,    SL_NONE,         false,              TEXT_NAKRUL1,  "Na-Krul"                      },
+	{      21,          21, DTYPE_NONE,         19,      100,    SL_NONE,         false,              TEXT_NAKRUL1,  N_("Na-Krul")                  },
 	{      21,          -1, DTYPE_NONE,         18,      100,    SL_NONE,         true,               TEXT_CORNSTN,  N_("Cornerstone of the World") },
 	{       9,           9, DTYPE_NONE,         13,      100,    SL_NONE,         false,              TEXT_JERSEY4,  N_( /* TRANSLATORS: Quest Name Block end*/ "The Jersey's Jersey")      },
 	// clang-format on
@@ -70,32 +69,23 @@ namespace {
 
 int WaterDone;
 
-/** Indices of quests to display in quest log window. `fistfinishedEntry` are active quests the rest are completed */
-quest_id qlist[MAXQUESTS];
-/** Overall number of qlist entries */
-int qlistCnt;
+/** Indices of quests to display in quest log window. `FirstFinishedQuest` are active quests the rest are completed */
+quest_id EncounteredQuests[MAXQUESTS];
+/** Overall number of EncounteredQuests entries */
+int EncounteredQuestCount;
 /** First (nonselectable) finished quest in list */
-int firstFinishedEntry;
+int FirstFinishedQuest;
 /** Currently selected quest list item */
-int selectedEntry;
+int SelectedQuest;
 
-constexpr Rectangle panelInnerRect { { 32, 26 }, { 280, 300 } };
-constexpr int lineHeight = 12;
-constexpr int maxSpacing = lineHeight * 2;
-int topY;
-int lineSpacing;
-int act2finSpacing;
+constexpr Rectangle InnerPanel { { 32, 26 }, { 280, 300 } };
+constexpr int LineHeight = 12;
+constexpr int MaxSpacing = LineHeight * 2;
+int ListYOffset;
+int LineSpacing;
+/** The number of pixels to move finished quest, to seperate them from the active ones */
+int FinishedQuestOffset;
 
-/**
- * Specifies a delta in X-coordinates from the quest entrance for
- * which the hover text of the cursor will be visible.
- */
-char questxoff[7] = { 0, -1, 0, -1, -2, -1, -2 };
-/**
- * Specifies a delta in Y-coordinates from the quest entrance for
- * which the hover text of the cursor will be visible.
- */
-char questyoff[7] = { 0, 0, -1, -1, -1, -2, -2 };
 const char *const QuestTriggerNames[5] = {
 	N_(/* TRANSLATORS: Quest Map*/ "King Leoric's Tomb"),
 	N_(/* TRANSLATORS: Quest Map*/ "The Chamber of Bone"),
@@ -260,14 +250,14 @@ void DrawBlood(int x, int y)
 
 int QuestLogMouseToEntry()
 {
-	Rectangle innerArea = panelInnerRect;
+	Rectangle innerArea = InnerPanel;
 	innerArea.position += Displacement(LeftPanel.position.x, LeftPanel.position.y);
-	if (!innerArea.Contains(MousePosition) || (qlistCnt == 0))
+	if (!innerArea.Contains(MousePosition) || (EncounteredQuestCount == 0))
 		return -1;
 	int y = MousePosition.y - innerArea.position.y;
-	for (int i = 0; i < firstFinishedEntry; i++) {
-		if ((y >= topY + i * lineSpacing)
-		    && (y < topY + i * lineSpacing + lineHeight)) {
+	for (int i = 0; i < FirstFinishedQuest; i++) {
+		if ((y >= ListYOffset + i * LineSpacing)
+		    && (y < ListYOffset + i * LineSpacing + LineHeight)) {
 			return i;
 		}
 	}
@@ -277,14 +267,13 @@ int QuestLogMouseToEntry()
 void PrintQLString(const Surface &out, int x, int y, const char *str, bool marked, bool disabled = false)
 {
 	int width = GetLineWidth(str);
-	int sx = x + std::max((257 - width) / 2, 0);
-	int sy = y + lineHeight; //seems that DrawString y is the text base line -> so add a lines height
+	x += std::max((257 - width) / 2, 0);
 	if (marked) {
-		CelDrawTo(out, GetPanelPosition(UiPanels::Quest, { sx - 20, sy + 1 }), *pSPentSpn2Cels, PentSpn2Spin());
+		CelDrawTo(out, GetPanelPosition(UiPanels::Quest, { x - 20, y + 13 }), *pSPentSpn2Cels, PentSpn2Spin());
 	}
-	DrawString(out, str, { GetPanelPosition(UiPanels::Quest, { sx, sy }), { 257, 0 } }, disabled ? UiFlags::ColorGold : UiFlags::ColorSilver);
+	DrawString(out, str, { GetPanelPosition(UiPanels::Quest, { x, y }), { 257, 0 } }, disabled ? UiFlags::ColorWhitegold : UiFlags::ColorWhite);
 	if (marked) {
-		CelDrawTo(out, GetPanelPosition(UiPanels::Quest, { sx + width + 7, sy + 1 }), *pSPentSpn2Cels, PentSpn2Spin());
+		CelDrawTo(out, GetPanelPosition(UiPanels::Quest, { x + width + 7, y + 13 }), *pSPentSpn2Cels, PentSpn2Spin());
 	}
 }
 
@@ -302,7 +291,7 @@ void InitQuests()
 	int q = 0;
 	for (auto &quest : Quests) {
 		quest._qidx = static_cast<quest_id>(q);
-		auto &questData = QuestData[q];
+		auto &questData = QuestsData[q];
 		q++;
 
 		quest._qactive = QUEST_NOTAVAIL;
@@ -346,7 +335,7 @@ void InitQuests()
 		Quests[Q_BETRAYER]._qvar1 = 2;
 }
 
-void InitialiseQuestPools(uint32_t seed, QuestStruct quests[])
+void InitialiseQuestPools(uint32_t seed, Quest quests[])
 {
 	SetRndSeed(seed);
 	if (GenerateRnd(2) != 0)
@@ -354,10 +343,25 @@ void InitialiseQuestPools(uint32_t seed, QuestStruct quests[])
 	else
 		quests[Q_SKELKING]._qactive = QUEST_NOTAVAIL;
 
-	quests[QuestGroup1[GenerateRnd(sizeof(QuestGroup1) / sizeof(int))]]._qactive = QUEST_NOTAVAIL;
-	quests[QuestGroup2[GenerateRnd(sizeof(QuestGroup2) / sizeof(int))]]._qactive = QUEST_NOTAVAIL;
-	quests[QuestGroup3[GenerateRnd(sizeof(QuestGroup3) / sizeof(int))]]._qactive = QUEST_NOTAVAIL;
-	quests[QuestGroup4[GenerateRnd(sizeof(QuestGroup4) / sizeof(int))]]._qactive = QUEST_NOTAVAIL;
+	// using int and not size_t here to detect negative values from GenerateRnd
+	int randomIndex = GenerateRnd(sizeof(QuestGroup1) / sizeof(*QuestGroup1));
+
+	if (randomIndex >= 0)
+		quests[QuestGroup1[randomIndex]]._qactive = QUEST_NOTAVAIL;
+
+	randomIndex = GenerateRnd(sizeof(QuestGroup2) / sizeof(*QuestGroup2));
+	if (randomIndex >= 0)
+		quests[QuestGroup2[randomIndex]]._qactive = QUEST_NOTAVAIL;
+
+	randomIndex = GenerateRnd(sizeof(QuestGroup3) / sizeof(*QuestGroup3));
+	if (randomIndex >= 0)
+		quests[QuestGroup3[randomIndex]]._qactive = QUEST_NOTAVAIL;
+
+	randomIndex = GenerateRnd(sizeof(QuestGroup4) / sizeof(*QuestGroup4));
+
+	// always true, QuestGroup4 has two members
+	if (randomIndex >= 0)
+		quests[QuestGroup4[randomIndex]]._qactive = QUEST_NOTAVAIL;
 }
 
 void CheckQuests()
@@ -385,7 +389,7 @@ void CheckQuests()
 		quest.position.y = 2 * quest.position.y + 16;
 		int rportx = quest.position.x;
 		int rporty = quest.position.y;
-		AddMissile({ rportx, rporty }, { rportx, rporty }, 0, MIS_RPORTAL, TARGET_MONSTERS, MyPlayerId, 0, 0);
+		AddMissile({ rportx, rporty }, { rportx, rporty }, Direction::South, MIS_RPORTAL, TARGET_MONSTERS, MyPlayerId, 0, 0);
 		quest._qvar2 = 1;
 		if (quest._qactive == QUEST_ACTIVE) {
 			quest._qvar1 = 3;
@@ -398,7 +402,7 @@ void CheckQuests()
 	    && quest._qvar2 == 4) {
 		int rportx = 35;
 		int rporty = 32;
-		AddMissile({ rportx, rporty }, { rportx, rporty }, 0, MIS_RPORTAL, TARGET_MONSTERS, MyPlayerId, 0, 0);
+		AddMissile({ rportx, rporty }, { rportx, rporty }, Direction::South, MIS_RPORTAL, TARGET_MONSTERS, MyPlayerId, 0, 0);
 		quest._qvar2 = 3;
 	}
 
@@ -441,16 +445,11 @@ bool ForceQuests()
 	for (auto &quest : Quests) {
 		if (quest._qidx != Q_BETRAYER && currlevel == quest._qlevel && quest._qslvl != 0) {
 			int ql = quest._qslvl - 1;
-			int qx = quest.position.x;
-			int qy = quest.position.y;
 
-			for (int j = 0; j < 7; j++) {
-				if (qx + questxoff[j] == cursmx && qy + questyoff[j] == cursmy) {
-					strcpy(infostr, fmt::format(_(/* TRANSLATORS: Used for Quest Portals. {:s} is a Map Name */ "To {:s}"), _(QuestTriggerNames[ql])).c_str());
-					cursmx = qx;
-					cursmy = qy;
-					return true;
-				}
+			if (EntranceBoundaryContains(quest.position, cursPosition)) {
+				strcpy(infostr, fmt::format(_(/* TRANSLATORS: Used for Quest Portals. {:s} is a Map Name */ "To {:s}"), _(QuestTriggerNames[ql])).c_str());
+				cursPosition = quest.position;
+				return true;
 			}
 		}
 	}
@@ -458,7 +457,7 @@ bool ForceQuests()
 	return false;
 }
 
-void CheckQuestKill(const MonsterStruct &monster, bool sendmsg)
+void CheckQuestKill(const Monster &monster, bool sendmsg)
 {
 	if (gbIsSpawn)
 		return;
@@ -511,7 +510,7 @@ void CheckQuestKill(const MonsterStruct &monster, bool sendmsg)
 		Quests[Q_BETRAYER]._qvar1 = 7;
 		Quests[Q_BETRAYER]._qvar2 = 4;
 		Quests[Q_DIABLO]._qactive = QUEST_ACTIVE;
-		AddMissile({ 35, 32 }, { 35, 32 }, 0, MIS_RPORTAL, TARGET_MONSTERS, MyPlayerId, 0, 0);
+		AddMissile({ 35, 32 }, { 35, 32 }, Direction::South, MIS_RPORTAL, TARGET_MONSTERS, MyPlayerId, 0, 0);
 		myPlayer.Say(HeroSpeech::YourMadnessEndsHereBetrayer, 30);
 	} else if (monster._uniqtype - 1 == UMT_WARLORD) { //"Warlord of Blood"
 		Quests[Q_WARLORD]._qactive = QUEST_DONE;
@@ -556,28 +555,24 @@ void SetReturnLvlPos()
 {
 	switch (setlvlnum) {
 	case SL_SKELKING:
-		ReturnLvlX = Quests[Q_SKELKING].position.x + 1;
-		ReturnLvlY = Quests[Q_SKELKING].position.y;
+		ReturnLvlPosition = Quests[Q_SKELKING].position + Direction::SouthEast;
 		ReturnLevel = Quests[Q_SKELKING]._qlevel;
 		ReturnLevelType = DTYPE_CATHEDRAL;
 		break;
 	case SL_BONECHAMB:
-		ReturnLvlX = Quests[Q_SCHAMB].position.x + 1;
-		ReturnLvlY = Quests[Q_SCHAMB].position.y;
+		ReturnLvlPosition = Quests[Q_SCHAMB].position + Direction::SouthEast;
 		ReturnLevel = Quests[Q_SCHAMB]._qlevel;
 		ReturnLevelType = DTYPE_CATACOMBS;
 		break;
 	case SL_MAZE:
 		break;
 	case SL_POISONWATER:
-		ReturnLvlX = Quests[Q_PWATER].position.x;
-		ReturnLvlY = Quests[Q_PWATER].position.y + 1;
+		ReturnLvlPosition = Quests[Q_PWATER].position + Direction::SouthWest;
 		ReturnLevel = Quests[Q_PWATER]._qlevel;
 		ReturnLevelType = DTYPE_CATHEDRAL;
 		break;
 	case SL_VILEBETRAYER:
-		ReturnLvlX = Quests[Q_BETRAYER].position.x + 1;
-		ReturnLvlY = Quests[Q_BETRAYER].position.y - 1;
+		ReturnLvlPosition = Quests[Q_BETRAYER].position + Direction::East;
 		ReturnLevel = Quests[Q_BETRAYER]._qlevel;
 		ReturnLevelType = DTYPE_HELL;
 		break;
@@ -590,8 +585,7 @@ void GetReturnLvlPos()
 {
 	if (Quests[Q_BETRAYER]._qactive == QUEST_DONE)
 		Quests[Q_BETRAYER]._qvar2 = 2;
-	ViewX = ReturnLvlX;
-	ViewY = ReturnLvlY;
+	ViewPosition = ReturnLvlPosition;
 	currlevel = ReturnLevel;
 	leveltype = ReturnLevelType;
 }
@@ -751,17 +745,17 @@ void DrawQuestLog(const Surface &out)
 {
 	int l = QuestLogMouseToEntry();
 	if (l >= 0) {
-		selectedEntry = l;
+		SelectedQuest = l;
 	}
-	const auto x = panelInnerRect.position.x;
+	const auto x = InnerPanel.position.x;
 	CelDrawTo(out, GetPanelPosition(UiPanels::Quest, { 0, 351 }), *pQLogCel, 1);
-	int y = panelInnerRect.position.y + topY;
-	for (int i = 0; i < qlistCnt; i++) {
-		if (i == firstFinishedEntry) {
-			y += act2finSpacing;
+	int y = InnerPanel.position.y + ListYOffset;
+	for (int i = 0; i < EncounteredQuestCount; i++) {
+		if (i == FirstFinishedQuest) {
+			y += FinishedQuestOffset;
 		}
-		PrintQLString(out, x, y, _(QuestData[qlist[i]]._qlstr), i == selectedEntry, i >= firstFinishedEntry);
-		y += lineSpacing;
+		PrintQLString(out, x, y, _(QuestsData[EncounteredQuests[i]]._qlstr), i == SelectedQuest, i >= FirstFinishedQuest);
+		y += LineSpacing;
 	}
 }
 
@@ -769,62 +763,62 @@ void StartQuestlog()
 {
 
 	auto sortQuestIdx = [](int a, int b) {
-		return QuestData[a].questBookOrder < QuestData[b].questBookOrder;
+		return QuestsData[a].questBookOrder < QuestsData[b].questBookOrder;
 	};
 
-	qlistCnt = 0;
+	EncounteredQuestCount = 0;
 	for (auto &quest : Quests) {
 		if (quest._qactive == QUEST_ACTIVE && quest._qlog) {
-			qlist[qlistCnt] = quest._qidx;
-			qlistCnt++;
+			EncounteredQuests[EncounteredQuestCount] = quest._qidx;
+			EncounteredQuestCount++;
 		}
 	}
-	firstFinishedEntry = qlistCnt;
+	FirstFinishedQuest = EncounteredQuestCount;
 	for (auto &quest : Quests) {
 		if (quest._qactive == QUEST_DONE || quest._qactive == QUEST_HIVE_DONE) {
-			qlist[qlistCnt] = quest._qidx;
-			qlistCnt++;
+			EncounteredQuests[EncounteredQuestCount] = quest._qidx;
+			EncounteredQuestCount++;
 		}
 	}
 
-	std::sort(&qlist[0], &qlist[firstFinishedEntry], sortQuestIdx);
-	std::sort(&qlist[firstFinishedEntry], &qlist[qlistCnt], sortQuestIdx);
+	std::sort(&EncounteredQuests[0], &EncounteredQuests[FirstFinishedQuest], sortQuestIdx);
+	std::sort(&EncounteredQuests[FirstFinishedQuest], &EncounteredQuests[EncounteredQuestCount], sortQuestIdx);
 
-	bool twoBlocks = firstFinishedEntry != 0 && firstFinishedEntry < qlistCnt;
+	bool twoBlocks = FirstFinishedQuest != 0 && FirstFinishedQuest < EncounteredQuestCount;
 
-	topY = 0;
-	act2finSpacing = !twoBlocks ? 0 : lineHeight / 2;
+	ListYOffset = 0;
+	FinishedQuestOffset = !twoBlocks ? 0 : LineHeight / 2;
 
-	int overallMinHeight = qlistCnt * lineHeight + act2finSpacing;
-	int space = panelInnerRect.size.height;
+	int overallMinHeight = EncounteredQuestCount * LineHeight + FinishedQuestOffset;
+	int space = InnerPanel.size.height;
 
-	if (qlistCnt > 0) {
+	if (EncounteredQuestCount > 0) {
 		int additionalSpace = space - overallMinHeight;
-		int addLineSpacing = additionalSpace / qlistCnt;
-		addLineSpacing = std::min(maxSpacing - lineHeight, addLineSpacing);
-		lineSpacing = lineHeight + addLineSpacing;
+		int addLineSpacing = additionalSpace / EncounteredQuestCount;
+		addLineSpacing = std::min(MaxSpacing - LineHeight, addLineSpacing);
+		LineSpacing = LineHeight + addLineSpacing;
 		if (twoBlocks) {
-			int additionalSepSpace = additionalSpace - (addLineSpacing * qlistCnt);
-			additionalSepSpace = std::min(lineHeight, additionalSepSpace);
-			act2finSpacing = std::max(4, additionalSepSpace);
+			int additionalSepSpace = additionalSpace - (addLineSpacing * EncounteredQuestCount);
+			additionalSepSpace = std::min(LineHeight, additionalSepSpace);
+			FinishedQuestOffset = std::max(4, additionalSepSpace);
 		}
 
-		int overallHeight = qlistCnt * lineSpacing + act2finSpacing;
-		topY += (space - overallHeight) / 2;
+		int overallHeight = EncounteredQuestCount * LineSpacing + FinishedQuestOffset;
+		ListYOffset += (space - overallHeight) / 2;
 	}
 
-	selectedEntry = firstFinishedEntry == 0 ? -1 : 0;
+	SelectedQuest = FirstFinishedQuest == 0 ? -1 : 0;
 	QuestLogIsOpen = true;
 }
 
 void QuestlogUp()
 {
-	if (firstFinishedEntry == 0) {
-		selectedEntry = -1;
+	if (FirstFinishedQuest == 0) {
+		SelectedQuest = -1;
 	} else {
-		selectedEntry--;
-		if (selectedEntry < 0) {
-			selectedEntry = firstFinishedEntry - 1;
+		SelectedQuest--;
+		if (SelectedQuest < 0) {
+			SelectedQuest = FirstFinishedQuest - 1;
 		}
 		PlaySFX(IS_TITLEMOV);
 	}
@@ -832,12 +826,12 @@ void QuestlogUp()
 
 void QuestlogDown()
 {
-	if (firstFinishedEntry == 0) {
-		selectedEntry = -1;
+	if (FirstFinishedQuest == 0) {
+		SelectedQuest = -1;
 	} else {
-		selectedEntry++;
-		if (selectedEntry == firstFinishedEntry) {
-			selectedEntry = 0;
+		SelectedQuest++;
+		if (SelectedQuest == FirstFinishedQuest) {
+			SelectedQuest = 0;
 		}
 		PlaySFX(IS_TITLEMOV);
 	}
@@ -846,8 +840,8 @@ void QuestlogDown()
 void QuestlogEnter()
 {
 	PlaySFX(IS_TITLSLCT);
-	if (qlistCnt != 0 && selectedEntry < firstFinishedEntry)
-		InitQTextMsg(Quests[qlist[selectedEntry]]._qmsg);
+	if (EncounteredQuestCount != 0 && SelectedQuest >= 0 && SelectedQuest < FirstFinishedQuest)
+		InitQTextMsg(Quests[EncounteredQuests[SelectedQuest]]._qmsg);
 	QuestLogIsOpen = false;
 }
 
@@ -874,7 +868,7 @@ void SetMultiQuest(int q, quest_state s, bool log, int v1)
 	}
 }
 
-bool QuestStruct::IsAvailable()
+bool Quest::IsAvailable()
 {
 	if (setlevel)
 		return false;
@@ -882,7 +876,7 @@ bool QuestStruct::IsAvailable()
 		return false;
 	if (_qactive == QUEST_NOTAVAIL)
 		return false;
-	if (gbIsMultiplayer && QuestData[_qidx].isSinglePlayerOnly)
+	if (gbIsMultiplayer && QuestsData[_qidx].isSinglePlayerOnly)
 		return false;
 
 	return true;

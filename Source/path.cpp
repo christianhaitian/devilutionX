@@ -5,6 +5,8 @@
  */
 #include "path.h"
 
+#include <array>
+
 #include "gendung.h"
 #include "objects.h"
 
@@ -285,12 +287,16 @@ bool GetPath(const std::function<bool(Point)> &posOk, PATHNODE *pPath, Point des
 
 bool IsTileNotSolid(Point position)
 {
+	if (!InDungeonBounds(position)) {
+		return false;
+	}
+
 	return !nSolidTable[dPiece[position.x][position.y]];
 }
 
 bool IsTileSolid(Point position)
 {
-	if (position.x < 0 || position.y < 0 || position.x >= MAXDUNX || position.y >= MAXDUNY) {
+	if (!InDungeonBounds(position)) {
 		return false;
 	}
 
@@ -308,6 +314,28 @@ bool IsTileWalkable(Point position, bool ignoreDoors)
 	}
 
 	return !IsTileSolid(position);
+}
+
+bool IsTileOccupied(Point position)
+{
+	if (!InDungeonBounds(position)) {
+		return true; // OOB positions are considered occupied.
+	}
+
+	if (IsTileSolid(position)) {
+		return true;
+	}
+	if (dMonster[position.x][position.y] != 0) {
+		return true;
+	}
+	if (dPlayer[position.x][position.y] != 0) {
+		return true;
+	}
+	if (dObject[position.x][position.y] != 0) {
+		return true;
+	}
+
+	return false;
 }
 
 int FindPath(const std::function<bool(Point)> &posOk, Point startPosition, Point destinationPosition, int8_t path[MAX_PATH_LENGTH])
@@ -365,19 +393,156 @@ bool path_solid_pieces(Point startPosition, Point destinationPosition)
 	bool rv = true;
 	switch (GetPathDirection(startPosition, destinationPosition)) {
 	case 5: // Stepping north
-		rv = IsTileNotSolid(destinationPosition + DIR_SW) && IsTileNotSolid(destinationPosition + DIR_SE);
+		rv = IsTileNotSolid(destinationPosition + Direction::SouthWest) && IsTileNotSolid(destinationPosition + Direction::SouthEast);
 		break;
 	case 6: // Stepping east
-		rv = IsTileNotSolid(destinationPosition + DIR_SW) && IsTileNotSolid(destinationPosition + DIR_NW);
+		rv = IsTileNotSolid(destinationPosition + Direction::SouthWest) && IsTileNotSolid(destinationPosition + Direction::NorthWest);
 		break;
 	case 7: // Stepping south
-		rv = IsTileNotSolid(destinationPosition + DIR_NE) && IsTileNotSolid(destinationPosition + DIR_NW);
+		rv = IsTileNotSolid(destinationPosition + Direction::NorthEast) && IsTileNotSolid(destinationPosition + Direction::NorthWest);
 		break;
 	case 8: // Stepping west
-		rv = IsTileNotSolid(destinationPosition + DIR_SE) && IsTileNotSolid(destinationPosition + DIR_NE);
+		rv = IsTileNotSolid(destinationPosition + Direction::SouthEast) && IsTileNotSolid(destinationPosition + Direction::NorthEast);
 		break;
 	}
 	return rv;
+}
+
+std::optional<Point> FindClosestValidPosition(const std::function<bool(Point)> &posOk, Point startingPosition, unsigned int minimumRadius, unsigned int maximumRadius)
+{
+	if (minimumRadius > maximumRadius) {
+		return {}; // No valid search space with the given params.
+	}
+
+	if (minimumRadius == 0U) {
+		if (posOk(startingPosition)) {
+			return startingPosition;
+		}
+	}
+
+	if (minimumRadius <= 1U && maximumRadius >= 1U) {
+		// unrolling the case for radius 1 to save having to guard the corner check in the loop below.
+
+		Point candidatePosition = startingPosition + Direction::SouthWest;
+		if (posOk(candidatePosition)) {
+			return candidatePosition;
+		}
+		candidatePosition = startingPosition + Direction::NorthEast;
+		if (posOk(candidatePosition)) {
+			return candidatePosition;
+		}
+
+		candidatePosition = startingPosition + Direction::NorthWest;
+		if (posOk(candidatePosition)) {
+			return candidatePosition;
+		}
+
+		candidatePosition = startingPosition + Direction::SouthEast;
+		if (posOk(candidatePosition)) {
+			return candidatePosition;
+		}
+	}
+
+	if (maximumRadius >= 2U) {
+		for (int i = static_cast<int>(std::max(minimumRadius, 2U)); i <= static_cast<int>(std::min(maximumRadius, 50U)); i++) {
+			int x = 0;
+			int y = i;
+
+			// special case the checks when x == 0 to save checking the same tiles twice
+			Point candidatePosition = startingPosition + Displacement { x, y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+			candidatePosition = startingPosition + Displacement { x, -y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+
+			while (x < i - 1) {
+				x++;
+
+				candidatePosition = startingPosition + Displacement { -x, y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				candidatePosition = startingPosition + Displacement { x, y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				candidatePosition = startingPosition + Displacement { -x, -y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				candidatePosition = startingPosition + Displacement { x, -y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+			}
+
+			// special case for inset corners
+			y--;
+			candidatePosition = startingPosition + Displacement { -x, y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+
+			candidatePosition = startingPosition + Displacement { x, y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+
+			candidatePosition = startingPosition + Displacement { -x, -y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+
+			candidatePosition = startingPosition + Displacement { x, -y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+			x++;
+
+			while (y > 0) {
+				candidatePosition = startingPosition + Displacement { -x, y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				candidatePosition = startingPosition + Displacement { x, y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				candidatePosition = startingPosition + Displacement { -x, -y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				candidatePosition = startingPosition + Displacement { x, -y };
+				if (posOk(candidatePosition)) {
+					return candidatePosition;
+				}
+
+				y--;
+			}
+
+			// as above, special case for y == 0
+			candidatePosition = startingPosition + Displacement { -x, y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+
+			candidatePosition = startingPosition + Displacement { x, y };
+			if (posOk(candidatePosition)) {
+				return candidatePosition;
+			}
+		}
+	}
+
+	return {};
 }
 
 #ifdef RUN_TESTS

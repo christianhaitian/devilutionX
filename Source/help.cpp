@@ -100,14 +100,17 @@ std::vector<std::string> HelpTextLines;
 
 void InitHelp()
 {
+	static bool Initialized = false;
+	if (Initialized)
+		return;
+
 	HelpFlag = false;
-	char tempString[512];
+	char tempString[1024];
 
 	for (const auto *text : HelpText) {
 		strcpy(tempString, _(text));
 
-		WordWrapGameString(tempString, 577);
-		const string_view paragraph = tempString;
+		const std::string paragraph = WordWrapString(tempString, 577);
 
 		size_t previous = 0;
 		while (true) {
@@ -118,6 +121,8 @@ void InitHelp()
 			previous = next + 1;
 		}
 	}
+
+	Initialized = true;
 }
 
 void DrawHelp(const Surface &out)
@@ -130,21 +135,21 @@ void DrawHelp(const Surface &out)
 		title = gbIsSpawn ? _("Shareware Hellfire Help") : _("Hellfire Help");
 	else
 		title = gbIsSpawn ? _("Shareware Diablo Help") : _("Diablo Help");
-	PrintSString(out, 0, 2, title, UiFlags::ColorGold | UiFlags::AlignCenter);
+	PrintSString(out, 0, 2, title, UiFlags::ColorWhitegold | UiFlags::AlignCenter);
 
 	DrawSLine(out, 5);
 
 	const int sx = PANEL_X + 32;
 	const int sy = UI_OFFSET_Y + 51;
 
-	for (int i = 7; i < 22; i++) {
-		const char *line = HelpTextLines[i - 7 + SkipLines].c_str();
+	for (int i = 6; i < 21; i++) {
+		const char *line = HelpTextLines[i - 6 + SkipLines].c_str();
 		if (line[0] == '\0') {
 			continue;
 		}
 
 		int offset = 0;
-		UiFlags style = UiFlags::ColorSilver;
+		UiFlags style = UiFlags::ColorWhite;
 		if (line[0] == '$') {
 			offset = 1;
 			style = UiFlags::ColorRed;
@@ -153,7 +158,7 @@ void DrawHelp(const Surface &out)
 		DrawString(out, &line[offset], { { sx, sy + i * 12 }, { 577, 12 } }, style);
 	}
 
-	PrintSString(out, 0, 23, _("Press ESC to end or the arrow keys to scroll."), UiFlags::ColorGold | UiFlags::AlignCenter);
+	PrintSString(out, 0, 23, _("Press ESC to end or the arrow keys to scroll."), UiFlags::ColorWhitegold | UiFlags::AlignCenter);
 }
 
 void DisplayHelp()

@@ -63,21 +63,21 @@ void AddItemToLabelQueue(int id, int x, int y)
 {
 	if (!IsHighlightingLabelsEnabled())
 		return;
-	ItemStruct *it = &Items[id];
+	Item &item = Items[id];
 
 	const char *textOnGround;
-	if (it->_itype == ITYPE_GOLD) {
-		std::sprintf(tempstr, _("%i gold"), it->_ivalue);
+	if (item._itype == ItemType::Gold) {
+		std::sprintf(tempstr, _("%i gold"), item._ivalue);
 		textOnGround = tempstr;
 	} else {
-		textOnGround = it->_iIdentified ? it->_iIName : it->_iName;
+		textOnGround = item._iIdentified ? item._iIName : item._iName;
 	}
 
 	int nameWidth = GetLineWidth(textOnGround);
 	nameWidth += MarginX * 2;
-	int index = ItemCAnimTbl[it->_iCurs];
+	int index = ItemCAnimTbl[item._iCurs];
 	if (!labelCenterOffsets[index]) {
-		std::pair<int, int> itemBounds = MeasureSolidHorizontalBounds(*it->AnimInfo.pCelSprite, it->AnimInfo.CurrentFrame);
+		std::pair<int, int> itemBounds = MeasureSolidHorizontalBounds(*item.AnimInfo.pCelSprite, item.AnimInfo.CurrentFrame);
 		labelCenterOffsets[index].emplace((itemBounds.first + itemBounds.second) / 2);
 	}
 
@@ -88,7 +88,7 @@ void AddItemToLabelQueue(int id, int x, int y)
 		y *= 2;
 	}
 	x -= nameWidth / 2;
-	labelQueue.push_back(ItemLabel { id, nameWidth, { x, y }, textOnGround });
+	labelQueue.push_back(ItemLabel { id, nameWidth, { x, y - Height }, textOnGround });
 }
 
 bool IsMouseOverGameArea()
@@ -146,21 +146,20 @@ void DrawItemNameLabels(const Surface &out)
 	}
 
 	for (const ItemLabel &label : labelQueue) {
-		ItemStruct &itm = Items[label.id];
+		Item &item = Items[label.id];
 
-		if (MousePosition.x >= label.pos.x && MousePosition.x < label.pos.x + label.width && MousePosition.y >= label.pos.y - Height + MarginY && MousePosition.y < label.pos.y + MarginY) {
+		if (MousePosition.x >= label.pos.x && MousePosition.x < label.pos.x + label.width && MousePosition.y >= label.pos.y + MarginY && MousePosition.y < label.pos.y + MarginY + Height) {
 			if (!gmenu_is_active() && PauseMode == 0 && !MyPlayerIsDead && IsMouseOverGameArea()) {
 				isLabelHighlighted = true;
-				cursmx = itm.position.x;
-				cursmy = itm.position.y;
+				cursPosition = item.position;
 				pcursitem = label.id;
 			}
 		}
 		if (pcursitem == label.id)
-			FillRect(out, label.pos.x, label.pos.y - Height + MarginY, label.width, Height, PAL8_BLUE + 6);
+			FillRect(out, label.pos.x, label.pos.y + MarginY, label.width, Height, PAL8_BLUE + 6);
 		else
-			DrawHalfTransparentRectTo(out, label.pos.x, label.pos.y - Height + MarginY, label.width, Height);
-		DrawString(out, label.text, { { label.pos.x + MarginX, label.pos.y }, { label.width, Height } }, itm.getTextColor());
+			DrawHalfTransparentRectTo(out, label.pos.x, label.pos.y + MarginY, label.width, Height);
+		DrawString(out, label.text, { { label.pos.x + MarginX, label.pos.y }, { label.width, Height } }, item.getTextColor());
 	}
 	labelQueue.clear();
 }

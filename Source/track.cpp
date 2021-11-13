@@ -16,19 +16,19 @@ namespace devilution {
 
 namespace {
 
-void RepeatWalk(PlayerStruct &player)
+void RepeatWalk(Player &player)
 {
-	if (cursmx < 0 || cursmx >= MAXDUNX - 1 || cursmy < 0 || cursmy >= MAXDUNY - 1)
+	if (!InDungeonBounds(cursPosition))
 		return;
 
 	if (player._pmode != PM_STAND && !(player.IsWalking() && player.AnimInfo.GetFrameToUseForRendering() > 6))
 		return;
 
 	const Point target = player.GetTargetPosition();
-	if (cursmx == target.x && cursmy == target.y)
+	if (cursPosition == target)
 		return;
 
-	NetSendCmdLoc(MyPlayerId, true, CMD_WALKXY, { cursmx, cursmy });
+	NetSendCmdLoc(MyPlayerId, true, CMD_WALKXY, cursPosition);
 }
 
 } // namespace
@@ -56,8 +56,8 @@ void RepeatMouseAction()
 	bool rangedAttack = myPlayer.UsesRangedWeapon();
 	switch (LastMouseButtonAction) {
 	case MouseActionType::Attack:
-		if (cursmx >= 0 && cursmx < MAXDUNX && cursmy >= 0 && cursmy < MAXDUNY)
-			NetSendCmdLoc(MyPlayerId, true, rangedAttack ? CMD_RATTACKXY : CMD_SATTACKXY, { cursmx, cursmy });
+		if (InDungeonBounds(cursPosition))
+			NetSendCmdLoc(MyPlayerId, true, rangedAttack ? CMD_RATTACKXY : CMD_SATTACKXY, cursPosition);
 		break;
 	case MouseActionType::AttackMonsterTarget:
 		if (pcursmonst != -1)
@@ -68,15 +68,15 @@ void RepeatMouseAction()
 			NetSendCmdParam1(true, rangedAttack ? CMD_RATTACKPID : CMD_ATTACKPID, pcursplr);
 		break;
 	case MouseActionType::Spell:
-		CheckPlrSpell();
+		CheckPlrSpell(true);
 		break;
 	case MouseActionType::SpellMonsterTarget:
 		if (pcursmonst != -1)
-			CheckPlrSpell();
+			CheckPlrSpell(false);
 		break;
 	case MouseActionType::SpellPlayerTarget:
 		if (pcursplr != -1 && !gbFriendlyMode)
-			CheckPlrSpell();
+			CheckPlrSpell(false);
 		break;
 	case MouseActionType::OperateObject:
 		if (pcursobj != -1) {

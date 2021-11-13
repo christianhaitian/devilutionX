@@ -159,12 +159,17 @@ struct PlayerAnimationData {
 	 *        Is referenced from CelSprite in CelSpritesForDirections
 	 */
 	std::unique_ptr<byte[]> RawData;
+
+	inline const std::optional<CelSprite> &GetCelSpritesForDirection(Direction direction) const
+	{
+		return CelSpritesForDirections[static_cast<size_t>(direction)];
+	}
 };
 
-struct PlayerStruct {
-	PlayerStruct() = default;
-	PlayerStruct(PlayerStruct &&) noexcept = default;
-	PlayerStruct &operator=(PlayerStruct &&) noexcept = default;
+struct Player {
+	Player() = default;
+	Player(Player &&) noexcept = default;
+	Player &operator=(Player &&) noexcept = default;
 
 	PLR_MODE _pmode;
 	int8_t walkpath[MAX_PATH_LENGTH];
@@ -172,9 +177,9 @@ struct PlayerStruct {
 	action_id destAction;
 	int destParam1;
 	int destParam2;
-	Direction destParam3;
+	int destParam3;
 	int destParam4;
-	int plrlevel;
+	uint8_t plrlevel;
 	ActorPosition position;
 	Direction _pdir; // Direction faced by player (direction enum)
 	int _pgfxnum;    // Bitmask indicating what variant of the sprite the player is using. Lower byte define weapon (PlayerWeaponGraphic) and higher values define armour (starting with PlayerArmorGraphic)
@@ -237,10 +242,8 @@ struct PlayerStruct {
 	bool _pInfraFlag;
 	/** Player's direction when ending movement. Also used for casting direction of SPL_FIREWALL. */
 	Direction tempDirection;
-	/** Used for spell level, and X component of _pVar5 */
-	int _pVar4;
-	/** Used for storing position of a tile which should have its BFLAG_PLAYERLR flag removed after walking. When starting to walk the game places the player in the dPlayer array -1 in the Y coordinate, and uses BFLAG_PLAYERLR to check if it should be using -1 to the Y coordinate when rendering the player (also used for storing the level of a spell when the player casts it) */
-	int _pVar5;
+	/** Used for spell level */
+	int spellLevel;
 	/** Used for stalling the appearance of the options screen after dying in singleplayer */
 	int deathFrame;
 	bool _pLvlVisited[NUMLEVELS];
@@ -258,12 +261,12 @@ struct PlayerStruct {
 	int _pHFrames;
 	int _pDFrames;
 	int _pBFrames;
-	ItemStruct InvBody[NUM_INVLOC];
-	ItemStruct InvList[NUM_INV_GRID_ELEM];
+	Item InvBody[NUM_INVLOC];
+	Item InvList[NUM_INV_GRID_ELEM];
 	int _pNumInv;
 	int8_t InvGrid[NUM_INV_GRID_ELEM];
-	ItemStruct SpdList[MAXBELTITEMS];
-	ItemStruct HoldItem;
+	Item SpdList[MAXBELTITEMS];
+	Item HoldItem;
 	int _pIMinDam;
 	int _pIMaxDam;
 	int _pIAC;
@@ -322,9 +325,9 @@ struct PlayerStruct {
 	 * matching items were found.
 	 */
 	template <typename TPredicate>
-	const ItemStruct *GetMostValuableItem(const TPredicate &itemPredicate) const
+	const Item *GetMostValuableItem(const TPredicate &itemPredicate) const
 	{
-		const auto getMostValuableItem = [&itemPredicate](const ItemStruct *begin, const ItemStruct *end, const ItemStruct *mostValuableItem = nullptr) {
+		const auto getMostValuableItem = [&itemPredicate](const Item *begin, const Item *end, const Item *mostValuableItem = nullptr) {
 			for (const auto *item = begin; item < end; item++) {
 				if (item->isEmpty() || !itemPredicate(*item)) {
 					continue;
@@ -338,7 +341,7 @@ struct PlayerStruct {
 			return mostValuableItem;
 		};
 
-		const ItemStruct *mostValuableItem = getMostValuableItem(SpdList, SpdList + MAXBELTITEMS);
+		const Item *mostValuableItem = getMostValuableItem(SpdList, SpdList + MAXBELTITEMS);
 		mostValuableItem = getMostValuableItem(InvBody, InvBody + inv_body_loc::NUM_INVLOC, mostValuableItem);
 		mostValuableItem = getMostValuableItem(InvList, InvList + _pNumInv, mostValuableItem);
 
@@ -351,6 +354,13 @@ struct PlayerStruct {
 	 * @return The base value for the requested attribute.
 	 */
 	int GetBaseAttributeValue(CharacterAttribute attribute) const;
+
+	/**
+	 * @brief Gets the current value of the player's specified attribute.
+	 * @param attribute The attribute to retrieve the current value for
+	 * @return The current value for the requested attribute.
+	 */
+	int GetCurrentAttributeValue(CharacterAttribute attribute) const;
 
 	/**
 	 * @brief Gets the maximum value of the player's specified attribute.
@@ -366,7 +376,7 @@ struct PlayerStruct {
 
 	/**
 	 * @brief Says a speech line.
-	 * @todo BUGFIX Prevent more then one speech to be played at a time (reject new requests).
+	 * @todo BUGFIX Prevent more than one speech to be played at a time (reject new requests).
 	 */
 	void Say(HeroSpeech speechId) const;
 	/**
@@ -392,7 +402,7 @@ struct PlayerStruct {
 	bool IsWalking() const;
 
 	/**
-	 * @brief Resets all Data of the current PlayerStruct
+	 * @brief Resets all Data of the current Player
 	 */
 	void Reset();
 
@@ -416,6 +426,18 @@ struct PlayerStruct {
 	}
 
 	/**
+	 * @brief Return player's melee to hit value, including armor piercing
+	 */
+	int GetMeleePiercingToHit() const
+	{
+		int hper = GetMeleeToHit();
+		//in hellfire armor piercing ignores % of enemy armor instead, no way to include it here
+		if (!gbIsHellfire)
+			hper += _pIEnAc;
+		return hper;
+	}
+
+	/**
 	 * @brief Return player's ranged to hit value
 	 */
 	int GetRangedToHit() const
@@ -425,6 +447,15 @@ struct PlayerStruct {
 			hper += 20;
 		else if (_pClass == HeroClass::Warrior || _pClass == HeroClass::Bard)
 			hper += 10;
+		return hper;
+	}
+
+	int GetRangedPiercingToHit() const
+	{
+		int hper = GetRangedToHit();
+		//in hellfire armor piercing ignores % of enemy armor instead, no way to include it here
+		if (!gbIsHellfire)
+			hper += _pIEnAc;
 		return hper;
 	}
 
@@ -451,6 +482,32 @@ struct PlayerStruct {
 		if (useLevel)
 			blkper += _pLevel * 2;
 		return blkper;
+	}
+
+	/**
+	 * @brief Return monster armor value after including player's armor piercing % (hellfire only)
+	 * @param monsterArmor - monster armor before applying % armor pierce
+	 * @param isMelee - indicates if it's melee or ranged combat
+	 */
+	int CalculateArmorPierce(int monsterArmor, bool isMelee) const
+	{
+		int tmac = monsterArmor;
+		if (_pIEnAc > 0) {
+			if (gbIsHellfire) {
+				int pIEnAc = _pIEnAc - 1;
+				if (pIEnAc > 0)
+					tmac >>= pIEnAc;
+				else
+					tmac -= tmac / 4;
+			}
+			if (isMelee && _pClass == HeroClass::Barbarian) {
+				tmac -= monsterArmor / 8;
+			}
+		}
+		if (tmac < 0)
+			tmac = 0;
+
+		return tmac;
 	}
 
 	/**
@@ -492,7 +549,7 @@ struct PlayerStruct {
 	void ReadySpellFromEquipment(inv_body_loc bodyLocation)
 	{
 		auto &item = InvBody[bodyLocation];
-		if (item._itype == ITYPE_STAFF && item._iSpell != SPL_NULL && item._iCharges > 0) {
+		if (item._itype == ItemType::Staff && item._iSpell != SPL_NULL && item._iCharges > 0) {
 			_pRSpell = item._iSpell;
 			_pRSplType = RSPLTYPE_CHARGES;
 			force_redraw = 255;
@@ -524,13 +581,14 @@ struct PlayerStruct {
 };
 
 extern int MyPlayerId;
-extern PlayerStruct Players[MAX_PLRS];
+extern Player *MyPlayer;
+extern Player Players[MAX_PLRS];
 extern bool MyPlayerIsDead;
 extern int BlockBonuses[enum_size<HeroClass>::value];
 
-void LoadPlrGFX(PlayerStruct &player, player_graphic graphic);
-void InitPlayerGFX(PlayerStruct &player);
-void ResetPlayerGFX(PlayerStruct &player);
+void LoadPlrGFX(Player &player, player_graphic graphic);
+void InitPlayerGFX(Player &player);
+void ResetPlayerGFX(Player &player);
 
 /**
  * @brief Sets the new Player Animation with all relevant information for rendering
@@ -542,21 +600,21 @@ void ResetPlayerGFX(PlayerStruct &player);
  * @param numSkippedFrames Number of Frames that will be skipped (for example with modifier "faster attack")
  * @param distributeFramesBeforeFrame Distribute the numSkippedFrames only before this frame
  */
-void NewPlrAnim(PlayerStruct &player, player_graphic graphic, Direction dir, int numberOfFrames, int delayLen, AnimationDistributionFlags flags = AnimationDistributionFlags::None, int numSkippedFrames = 0, int distributeFramesBeforeFrame = 0);
-void SetPlrAnims(PlayerStruct &player);
+void NewPlrAnim(Player &player, player_graphic graphic, Direction dir, int numberOfFrames, int delayLen, AnimationDistributionFlags flags = AnimationDistributionFlags::None, int numSkippedFrames = 0, int distributeFramesBeforeFrame = 0);
+void SetPlrAnims(Player &player);
 void CreatePlayer(int playerId, HeroClass c);
-int CalcStatDiff(PlayerStruct &player);
+int CalcStatDiff(Player &player);
 #ifdef _DEBUG
 void NextPlrLevel(int pnum);
 #endif
 void AddPlrExperience(int pnum, int lvl, int exp);
 void AddPlrMonstExper(int lvl, int exp, char pmask);
 void ApplyPlrDamage(int pnum, int dam, int minHP = 0, int frac = 0, int earflag = 0);
-void InitPlayer(int pnum, bool FirstTime);
+void InitPlayer(Player &player, bool FirstTime);
 void InitMultiView();
 void PlrClrTrans(Point position);
 void PlrDoTrans(Point position);
-void SetPlayerOld(PlayerStruct &player);
+void SetPlayerOld(Player &player);
 void FixPlayerLocation(int pnum, Direction bDir);
 void StartStand(int pnum, Direction dir);
 void StartPlrBlock(int pnum, Direction dir);
@@ -564,32 +622,32 @@ void FixPlrWalkTags(int pnum);
 void RemovePlrFromMap(int pnum);
 void StartPlrHit(int pnum, int dam, bool forcehit);
 void StartPlayerKill(int pnum, int earflag);
-void StripTopGold(int pnum);
+void StripTopGold(Player &player);
 void SyncPlrKill(int pnum, int earflag);
 void RemovePlrMissiles(int pnum);
 void StartNewLvl(int pnum, interface_mode fom, int lvl);
 void RestartTownLvl(int pnum);
 void StartWarpLvl(int pnum, int pidx);
 void ProcessPlayers();
-void ClrPlrPath(PlayerStruct &player);
-bool PosOkPlayer(const PlayerStruct &player, Point position);
-void MakePlrPath(PlayerStruct &player, Point targetPosition, bool endspace);
-void CalcPlrStaff(PlayerStruct &player);
-void CheckPlrSpell();
+void ClrPlrPath(Player &player);
+bool PosOkPlayer(const Player &player, Point position);
+void MakePlrPath(Player &player, Point targetPosition, bool endspace);
+void CalcPlrStaff(Player &player);
+void CheckPlrSpell(bool isShiftHeld);
 void SyncPlrAnim(int pnum);
 void SyncInitPlrPos(int pnum);
 void SyncInitPlr(int pnum);
-void CheckStats(PlayerStruct &player);
+void CheckStats(Player &player);
 void ModifyPlrStr(int p, int l);
 void ModifyPlrMag(int p, int l);
 void ModifyPlrDex(int p, int l);
 void ModifyPlrVit(int p, int l);
-void SetPlayerHitPoints(int pnum, int val);
-void SetPlrStr(int p, int v);
-void SetPlrMag(int p, int v);
-void SetPlrDex(int p, int v);
-void SetPlrVit(int p, int v);
-void InitDungMsgs(PlayerStruct &player);
+void SetPlayerHitPoints(Player &player, int val);
+void SetPlrStr(Player &player, int v);
+void SetPlrMag(Player &player, int v);
+void SetPlrDex(Player &player, int v);
+void SetPlrVit(Player &player, int v);
+void InitDungMsgs(Player &player);
 void PlayDungMsgs();
 
 /* data */

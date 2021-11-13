@@ -9,10 +9,10 @@
 #include "DiabloUI/diabloui.h"
 #include "dx.h"
 #include "palette.h"
-#include "storm/storm.h"
 #include "utils/file_util.h"
 #include "utils/log.hpp"
 #include "utils/paths.h"
+#include "utils/pcx.hpp"
 #include "utils/ui_fwd.h"
 
 namespace devilution {
@@ -146,7 +146,7 @@ std::ofstream CaptureFile(std::string *dstPath)
  */
 void RedPalette()
 {
-	for (int i = 0; i < 255; i++) {
+	for (int i = 0; i < 256; i++) {
 		system_palette[i].g = 0;
 		system_palette[i].b = 0;
 	}
@@ -156,10 +156,6 @@ void RedPalette()
 }
 } // namespace
 
-/**
- * @brief Save the current screen to a screen??.PCX (00-99) in file if available, then make the screen red for 200ms.
-
- */
 void CaptureScreen()
 {
 	SDL_Color palette[256];

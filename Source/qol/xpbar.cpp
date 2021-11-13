@@ -31,11 +31,11 @@ constexpr int BackHeight = 9;
 
 Art xpbarArt;
 
-void DrawBar(const Surface &out, int x, int y, int width, const ColorGradient &gradient)
+void DrawBar(const Surface &out, Point screenPosition, int width, const ColorGradient &gradient)
 {
-	UnsafeDrawHorizontalLine(out, { x, y + 1 }, width, gradient[gradient.size() * 3 / 4 - 1]);
-	UnsafeDrawHorizontalLine(out, { x, y + 2 }, width, gradient[gradient.size() - 1]);
-	UnsafeDrawHorizontalLine(out, { x, y + 3 }, width, gradient[gradient.size() / 2 - 1]);
+	UnsafeDrawHorizontalLine(out, screenPosition + Displacement { 0, 1 }, width, gradient[gradient.size() * 3 / 4 - 1]);
+	UnsafeDrawHorizontalLine(out, screenPosition + Displacement { 0, 2 }, width, gradient[gradient.size() - 1]);
+	UnsafeDrawHorizontalLine(out, screenPosition + Displacement { 0, 3 }, width, gradient[gradient.size() / 2 - 1]);
 }
 
 void DrawEndCap(const Surface &out, Point point, int idx, const ColorGradient &gradient)
@@ -67,24 +67,21 @@ void FreeXPBar()
 
 void DrawXPBar(const Surface &out)
 {
-	if (!sgOptions.Gameplay.bExperienceBar)
+	if (!sgOptions.Gameplay.bExperienceBar || talkflag)
 		return;
 
 	const auto &player = Players[MyPlayerId];
 
-	const int backX = PANEL_LEFT + PANEL_WIDTH / 2 - 155;
-	const int backY = PANEL_TOP + PANEL_HEIGHT - 11;
+	const Point back = { PANEL_LEFT + PANEL_WIDTH / 2 - 155, PANEL_TOP + PANEL_HEIGHT - 11 };
+	const Point position = back + Displacement { 3, 2 };
 
-	const int xPos = backX + 3;
-	const int yPos = backY + 2;
-
-	DrawArt(out, backX, backY, &xpbarArt);
+	DrawArt(out, back, &xpbarArt);
 
 	const int8_t charLevel = player._pLevel;
 
 	if (charLevel == MAXCHARLEVEL - 1) {
 		// Draw a nice golden bar for max level characters.
-		DrawBar(out, xPos, yPos, BarWidth, GoldGradient);
+		DrawBar(out, position, BarWidth, GoldGradient);
 
 		return;
 	}
@@ -104,10 +101,10 @@ void DrawXPBar(const Surface &out)
 	const uint64_t fade = (prevXpDelta1 - lastFullPx) * (SilverGradient.size() - 1) / onePx;
 
 	// Draw beginning of bar full brightness
-	DrawBar(out, xPos, yPos, fullBar, SilverGradient);
+	DrawBar(out, position, fullBar, SilverGradient);
 
 	// End pixels appear gradually
-	DrawEndCap(out, { xPos + static_cast<int>(fullBar), yPos }, fade, SilverGradient);
+	DrawEndCap(out, position + Displacement { static_cast<int>(fullBar), 0 }, fade, SilverGradient);
 }
 
 bool CheckXPBarInfo()
@@ -130,7 +127,7 @@ bool CheckXPBarInfo()
 
 	if (charLevel == MAXCHARLEVEL - 1) {
 		// Show a maximum level indicator for max level players.
-		InfoColor = UiFlags::ColorGold;
+		InfoColor = UiFlags::ColorWhitegold;
 
 		strcpy(tempstr, _("Experience: "));
 		PrintWithSeparator(tempstr + strlen(tempstr), ExpLvlsTbl[charLevel - 1]);
@@ -141,7 +138,7 @@ bool CheckXPBarInfo()
 		return true;
 	}
 
-	InfoColor = UiFlags::ColorSilver;
+	InfoColor = UiFlags::ColorWhite;
 
 	strcpy(tempstr, _("Experience: "));
 	PrintWithSeparator(tempstr + strlen(tempstr), player._pExperience);

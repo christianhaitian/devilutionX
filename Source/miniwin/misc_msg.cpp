@@ -2,6 +2,11 @@
 #include <cstdint>
 #include <deque>
 #include <string>
+#ifdef USE_SDL1
+#include <codecvt>
+#include <locale>
+#include <cassert>
+#endif
 
 #include "control.h"
 #include "controls/controller.h"
@@ -9,7 +14,7 @@
 #include "controls/game_controls.h"
 #include "controls/plrctrls.h"
 #include "controls/remap_keyboard.h"
-#include "controls/touch.h"
+#include "controls/touch/event_handlers.h"
 #include "cursor.h"
 #include "engine/demomode.h"
 #include "engine/rectangle.hpp"
@@ -18,11 +23,15 @@
 #include "menu.h"
 #include "miniwin/miniwin.h"
 #include "movie.h"
-#include "storm/storm.h"
 #include "utils/display.h"
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/stubs.h"
+#include "utils/utf8.hpp"
+
+#ifdef __vita__
+#include "platform/vita/touch.h"
+#endif
 
 #ifdef __SWITCH__
 #include "platform/switch/docking.h"
@@ -41,13 +50,13 @@ static std::deque<tagMSG> message_queue;
 bool mouseWarping = false;
 Point mousePositionWarping;
 
-void SetCursorPos(int x, int y)
+void SetCursorPos(Point position)
 {
-	mousePositionWarping = { x, y };
+	mousePositionWarping = position;
 	mouseWarping = true;
-	LogicalToOutput(&x, &y);
+	LogicalToOutput(&position.x, &position.y);
 	if (!demo::IsRunning())
-		SDL_WarpMouseInWindow(ghMainWnd, x, y);
+		SDL_WarpMouseInWindow(ghMainWnd, position.x, position.y);
 }
 
 // Moves the mouse to the first attribute "+" button.
@@ -61,31 +70,14 @@ void FocusOnCharInfo()
 	// Find the first incrementable stat.
 	int stat = -1;
 	for (auto attribute : enum_values<CharacterAttribute>()) {
-		int max = myPlayer.GetMaximumAttributeValue(attribute);
-		switch (attribute) {
-		case CharacterAttribute::Strength:
-			if (myPlayer._pBaseStr >= max)
-				continue;
-			break;
-		case CharacterAttribute::Magic:
-			if (myPlayer._pBaseMag >= max)
-				continue;
-			break;
-		case CharacterAttribute::Dexterity:
-			if (myPlayer._pBaseDex >= max)
-				continue;
-			break;
-		case CharacterAttribute::Vitality:
-			if (myPlayer._pBaseVit >= max)
-				continue;
-			break;
-		}
+		if (myPlayer.GetBaseAttributeValue(attribute) >= myPlayer.GetMaximumAttributeValue(attribute))
+			continue;
 		stat = static_cast<int>(attribute);
 	}
 	if (stat == -1)
 		return;
-	const Rectangle &rect = ChrBtnsRect[stat];
-	SetCursorPos(rect.position.x + (rect.size.width / 2), rect.position.y + (rect.size.height / 2));
+
+	SetCursorPos(ChrBtnsRect[stat].Center());
 }
 
 static int TranslateSdlKey(SDL_Keysym key)
@@ -268,6 +260,7 @@ int32_t PositionForMouse(int16_t x, int16_t y)
 int32_t KeystateForMouse(int32_t ret)
 {
 	ret |= (SDL_GetModState() & KMOD_SHIFT) != 0 ? DVL_MK_SHIFT : 0;
+	ret |= (SDL_GetModState() & KMOD_CTRL) != 0 ? DVL_MK_CTRL : 0;
 	// XXX: other DVL_MK_* codes not implemented
 	return ret;
 }
@@ -328,7 +321,24 @@ bool FetchMessage_Real(tagMSG *lpMsg)
 		return true;
 	}
 
-#ifndef USE_SDL1
+#if !defined(USE_SDL1) && !defined(__vita__)
+	if (!movie_playing) {
+		// SDL generates mouse events from touch-based inputs to provide basic
+		// touchscreeen support for apps that don't explicitly handle touch events
+		if (IsAnyOf(e.type, SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP) && e.button.which == SDL_TOUCH_MOUSEID)
+			return true;
+		if (e.type == SDL_MOUSEMOTION && e.motion.which == SDL_TOUCH_MOUSEID)
+			return true;
+		if (e.type == SDL_MOUSEWHEEL && e.wheel.which == SDL_TOUCH_MOUSEID)
+			return true;
+	}
+#endif
+
+#if defined(VIRTUAL_GAMEPAD) && !defined(USE_SDL1)
+	HandleTouchEvent(e);
+#endif
+
+#ifdef __vita__
 	handle_touch(&e, MousePosition.x, MousePosition.y);
 #endif
 
@@ -392,7 +402,6 @@ bool FetchMessage_Real(tagMSG *lpMsg)
 				chrflag = false;
 				QuestLogIsOpen = false;
 				sbookflag = false;
-				StoreSpellCoords();
 			}
 			break;
 		case GameActionType_TOGGLE_CHARACTER_INFO:
@@ -451,7 +460,7 @@ bool FetchMessage_Real(tagMSG *lpMsg)
 			break;
 		}
 		return true;
-#ifndef USE_SDL1
+#ifdef __vita__
 	}
 	if (e.type < SDL_JOYAXISMOTION || (e.type >= SDL_FINGERDOWN && e.type < SDL_DOLLARGESTURE)) {
 #else
@@ -469,6 +478,19 @@ bool FetchMessage_Real(tagMSG *lpMsg)
 		break;
 	case SDL_KEYDOWN:
 	case SDL_KEYUP: {
+#ifdef USE_SDL1
+		if (gbRunGame && (IsTalkActive() || dropGoldFlag)) {
+			Uint16 unicode = e.key.keysym.unicode;
+			if (unicode >= ' ') {
+				std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> convert;
+				std::string utf8 = convert.to_bytes(unicode);
+				if (IsTalkActive())
+					control_new_text(utf8);
+				if (dropGoldFlag)
+					GoldDropNewText(utf8);
+			}
+		}
+#endif
 		int key = TranslateSdlKey(e.key.keysym);
 		if (key == -1)
 			return FalseAvail(e.type == SDL_KEYDOWN ? "SDL_KEYDOWN" : "SDL_KEYUP", e.key.keysym.sym);
@@ -481,6 +503,8 @@ bool FetchMessage_Real(tagMSG *lpMsg)
 		lpMsg->message = DVL_WM_MOUSEMOVE;
 		lpMsg->lParam = PositionForMouse(e.motion.x, e.motion.y);
 		lpMsg->wParam = KeystateForMouse(0);
+		if (!sgbControllerActive && invflag)
+			InvalidateInventorySlot();
 		break;
 	case SDL_MOUSEBUTTONDOWN: {
 		int button = e.button.button;
@@ -528,8 +552,18 @@ bool FetchMessage_Real(tagMSG *lpMsg)
 		return FalseAvail("SDL_KEYMAPCHANGED", 0);
 #endif
 	case SDL_TEXTEDITING:
+		if (gbRunGame)
+			break;
 		return FalseAvail("SDL_TEXTEDITING", e.edit.length);
 	case SDL_TEXTINPUT:
+		if (gbRunGame && IsTalkActive()) {
+			control_new_text(e.text.text);
+			break;
+		}
+		if (gbRunGame && dropGoldFlag) {
+			GoldDropNewText(e.text.text);
+			break;
+		}
 		return FalseAvail("SDL_TEXTINPUT", e.text.windowID);
 	case SDL_WINDOWEVENT:
 		switch (e.window.event) {

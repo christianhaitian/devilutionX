@@ -120,7 +120,6 @@ enum _cmd_id : uint8_t {
 	CMD_NOVA,
 	CMD_SETSHIELD,
 	CMD_REMSHIELD,
-	CMD_ENDSHIELD,
 	CMD_SETREFLECT,
 	CMD_NAKRUL,
 	CMD_OPENHIVE,
@@ -166,6 +165,16 @@ struct TCmdLocParam3 {
 	uint16_t wParam3;
 };
 
+struct TCmdLocParam4 {
+	_cmd_id bCmd;
+	uint8_t x;
+	uint8_t y;
+	uint16_t wParam1;
+	uint16_t wParam2;
+	uint16_t wParam3;
+	uint16_t wParam4;
+};
+
 struct TCmdParam1 {
 	_cmd_id bCmd;
 	uint16_t wParam1;
@@ -182,6 +191,14 @@ struct TCmdParam3 {
 	uint16_t wParam1;
 	uint16_t wParam2;
 	uint16_t wParam3;
+};
+
+struct TCmdParam4 {
+	_cmd_id bCmd;
+	uint16_t wParam1;
+	uint16_t wParam2;
+	uint16_t wParam3;
+	uint16_t wParam4;
 };
 
 struct TCmdGolem {
@@ -202,6 +219,9 @@ struct TCmdQuest {
 	uint8_t qvar1;
 };
 
+/**
+ * Represents an item being picked up from the ground
+ */
 struct TCmdGItem {
 	_cmd_id bCmd;
 	uint8_t bMaster;
@@ -229,6 +249,9 @@ struct TCmdGItem {
 	int16_t bAC;
 };
 
+/**
+ * Represents an item being dropped onto the ground
+ */
 struct TCmdPItem {
 	_cmd_id bCmd;
 	uint8_t x;
@@ -237,7 +260,7 @@ struct TCmdPItem {
 	uint16_t wCI;
 	/**
 	 * Item identifier
-	 * @see ItemStruct::_iSeed
+	 * @see Item::_iSeed
 	 */
 	int32_t dwSeed;
 	uint8_t bId;
@@ -334,6 +357,8 @@ struct TSyncMonster {
 	uint8_t _my;
 	uint8_t _menemy;
 	uint8_t _mdelta;
+	int32_t _mhitpoints;
+	int8_t mWhoHit;
 };
 
 struct TPktHdr {
@@ -362,6 +387,7 @@ struct DMonsterStr {
 	uint8_t _menemy;
 	uint8_t _mactive;
 	int32_t _mhitpoints;
+	int8_t mWhoHit;
 };
 
 struct DObjectStr {
@@ -414,7 +440,7 @@ void DeltaExportData(int pnum);
 void delta_init();
 void delta_kill_monster(int mi, Point position, BYTE bLevel);
 void delta_monster_hp(int mi, int hp, BYTE bLevel);
-void delta_sync_monster(const TSyncMonster *pSync, BYTE bLevel);
+void delta_sync_monster(const TSyncMonster &monsterSync, uint8_t level);
 bool delta_portal_inited(int i);
 bool delta_quest_inited(int i);
 void DeltaAddItem(int ii);
@@ -426,10 +452,12 @@ void NetSendCmdLoc(int playerId, bool bHiPri, _cmd_id bCmd, Point position);
 void NetSendCmdLocParam1(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1);
 void NetSendCmdLocParam2(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1, uint16_t wParam2);
 void NetSendCmdLocParam3(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3);
+void NetSendCmdLocParam4(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3, uint16_t wParam4);
 void NetSendCmdParam1(bool bHiPri, _cmd_id bCmd, uint16_t wParam1);
 void NetSendCmdParam2(bool bHiPri, _cmd_id bCmd, uint16_t wParam1, uint16_t wParam2);
 void NetSendCmdParam3(bool bHiPri, _cmd_id bCmd, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3);
-void NetSendCmdQuest(bool bHiPri, const QuestStruct &quest);
+void NetSendCmdParam4(bool bHiPri, _cmd_id bCmd, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3, uint16_t wParam4);
+void NetSendCmdQuest(bool bHiPri, const Quest &quest);
 void NetSendCmdGItem(bool bHiPri, _cmd_id bCmd, BYTE mast, BYTE pnum, BYTE ii);
 void NetSendCmdPItem(bool bHiPri, _cmd_id bCmd, Point position);
 void NetSendCmdChItem(bool bHiPri, BYTE bLoc);
@@ -439,6 +467,6 @@ void NetSendCmdDamage(bool bHiPri, uint8_t bPlr, uint32_t dwDam);
 void NetSendCmdMonDmg(bool bHiPri, uint16_t wMon, uint32_t dwDam);
 void NetSendCmdString(uint32_t pmask, const char *pszStr);
 void delta_close_portal(int pnum);
-uint32_t ParseCmd(int pnum, TCmd *pCmd);
+uint32_t ParseCmd(int pnum, const TCmd *pCmd);
 
 } // namespace devilution

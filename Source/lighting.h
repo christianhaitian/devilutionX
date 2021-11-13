@@ -7,6 +7,7 @@
 
 #include <array>
 
+#include "automap.h"
 #include "engine.h"
 #include "engine/point.hpp"
 #include "miniwin/miniwin.h"
@@ -26,7 +27,7 @@ struct LightPosition {
 	Point old;
 };
 
-struct LightStruct {
+struct Light {
 	LightPosition position;
 	int _lradius;
 	int _lid;
@@ -36,10 +37,10 @@ struct LightStruct {
 	bool _lflags;
 };
 
-extern LightStruct VisionList[MAXVISION];
+extern Light VisionList[MAXVISION];
 extern int VisionCount;
 extern int VisionId;
-extern LightStruct Lights[MAXLIGHTS];
+extern Light Lights[MAXLIGHTS];
 extern uint8_t ActiveLights[MAXLIGHTS];
 extern int ActiveLightCount;
 extern char LightsMax;
@@ -49,7 +50,7 @@ extern bool UpdateLighting;
 
 void DoLighting(Point position, int nRadius, int Lnum);
 void DoUnVision(Point position, int nRadius);
-void DoVision(Point position, int nRadius, bool doautomap, bool visible);
+void DoVision(Point position, int nRadius, MapExplorationType doautomap, bool visible);
 void MakeLightTable();
 #ifdef _DEBUG
 void ToggleLighting();
@@ -74,6 +75,7 @@ void lighting_color_cycling();
 /* rdata */
 
 extern const int8_t CrawlTable[2749];
+extern const int CrawlNum[19];
 extern const uint8_t VisionCrawlTable[23][30];
 
 } // namespace devilution

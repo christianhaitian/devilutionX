@@ -27,14 +27,12 @@ option(BINARY_RELEASE "Enable options for binary release" OFF)
 option(NIGHTLY_BUILD "Enable options for nightly build" OFF)
 option(USE_SDL1 "Use SDL1.2 instead of SDL2" OFF)
 option(NONET "Disable network support" OFF)
+cmake_dependent_option(DISABLE_TCP "Disable TCP multiplayer option" OFF "NOT NONET" ON)
+cmake_dependent_option(DISABLE_ZERO_TIER "Disable ZeroTier multiplayer option" OFF "NOT NONET" ON)
+cmake_dependent_option(PACKET_ENCRYPTION "Encrypt network packets" ON "NOT NONET" OFF)
 option(NOSOUND "Disable sound support" OFF)
 option(RUN_TESTS "Build and run tests" OFF)
 option(ENABLE_CODECOVERAGE "Instrument code for code coverage (only enabled with RUN_TESTS)" OFF)
-
-if(NOT NONET)
-  option(DISABLE_TCP "Disable TCP multiplayer option" OFF)
-  option(DISABLE_ZERO_TIER "Disable ZeroTier multiplayer option" OFF)
-endif()
 
 option(DISABLE_STREAMING_MUSIC "Disable streaming music (to work around broken platform implementations)" OFF)
 mark_as_advanced(DISABLE_STREAMING_MUSIC)
@@ -42,6 +40,24 @@ option(DISABLE_STREAMING_SOUNDS "Disable streaming sounds (to work around broken
 mark_as_advanced(DISABLE_STREAMING_SOUNDS)
 option(STREAM_ALL_AUDIO "Stream all the audio. For extremely RAM-constrained platforms.")
 mark_as_advanced(STREAM_ALL_AUDIO)
+
+# By default, devilutionx.mpq is built only if smpq is installed.
+if(NOT DEFINED BUILD_ASSETS_MPQ)
+  find_program(SMPQ smpq)
+elseif(BUILD_ASSETS_MPQ)
+  find_program(SMPQ smpq REQUIRED)
+endif()
+if(SMPQ)
+  set(_has_smpq ON)
+else()
+  set(_has_smpq OFF)
+endif()
+option(BUILD_ASSETS_MPQ "If true, assets are packaged into devilutionx.mpq." ${_has_smpq})
+
+# The gettext[tools] package takes a very long time to install
+if(CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg.cmake$")
+  option(USE_GETTEXT_FROM_VCPKG "Add vcpkg dependency for gettext[tools] for compiling translations" OFF)
+endif()
 
 RELEASE_OPTION(CPACK "Configure CPack")
 
@@ -60,13 +76,28 @@ if(NIGHTLY_BUILD OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
   set(CPACK ON)
 endif()
 
+if(USE_SDL1)
+  list(APPEND VCPKG_MANIFEST_FEATURES "sdl1")
+else()
+  list(APPEND VCPKG_MANIFEST_FEATURES "sdl2")
+endif()
+if(PACKET_ENCRYPTION)
+  list(APPEND VCPKG_MANIFEST_FEATURES "encryption")
+endif()
+if(USE_GETTEXT_FROM_VCPKG)
+  list(APPEND VCPKG_MANIFEST_FEATURES "translations")
+endif()
+if(RUN_TESTS)
+  list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+
 if(NOT NOSOUND)
   option(DEVILUTIONX_SYSTEM_SDL_AUDIOLIB "Use system-provided SDL_audiolib" OFF)
   cmake_dependent_option(DEVILUTIONX_STATIC_SDL_AUDIOLIB "Link static SDL_audiolib" OFF
                         "DEVILUTIONX_SYSTEM_SDL_AUDIOLIB AND NOT DIST" ON)
 endif()
 
-if(NOT NONET)
+if(PACKET_ENCRYPTION)
   option(DEVILUTIONX_SYSTEM_LIBSODIUM "Use system-provided libsodium" ON)
   cmake_dependent_option(DEVILUTIONX_STATIC_LIBSODIUM "Link static libsodium" OFF
                         "DEVILUTIONX_SYSTEM_LIBSODIUM AND NOT DIST" ON)
@@ -76,6 +107,13 @@ option(DEVILUTIONX_SYSTEM_LIBFMT "Use system-provided libfmt" ON)
 cmake_dependent_option(DEVILUTIONX_STATIC_LIBFMT "Link static libfmt" OFF
                        "DEVILUTIONX_SYSTEM_LIBFMT AND NOT DIST" ON)
 
+option(DEVILUTIONX_SYSTEM_SDL_IMAGE "Use system-provided SDL_image" ON)
+cmake_dependent_option(DEVILUTIONX_STATIC_SDL_IMAGE "Link static SDL_image" OFF
+                       "DEVILUTIONX_SYSTEM_SDL_IMAGE AND NOT DIST" ON)
+
+option(DEVILUTIONX_SYSTEM_BZIP2 "Use system-provided bzip2" ON)
+cmake_dependent_option(DEVILUTIONX_STATIC_BZIP2 "Link static bzip2" OFF
+                      "DEVILUTIONX_SYSTEM_BZIP2 AND NOT DIST" ON)
 
 if(NOT VERSION_NUM)
   include(CMake/git.cmake)
@@ -149,7 +187,9 @@ endif()
 
 set(TARGET_PLATFORM host CACHE STRING "Target platform")
 set_property(CACHE TARGET_PLATFORM PROPERTY STRINGS host retrofw rg350 gkd350h cpigamesh)
-if(TARGET_PLATFORM STREQUAL "retrofw")
+if(TARGET_PLATFORM STREQUAL "lepus")
+  include(lepus_defs)
+elseif(TARGET_PLATFORM STREQUAL "retrofw")
   include(retrofw_defs)
 elseif(TARGET_PLATFORM STREQUAL "rg350")
   include(rg350_defs)
@@ -199,6 +239,13 @@ if(PIE)
   set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 endif()
 
+if(NONET)
+  # Fix dependent options if platform defs disable network
+  set(DISABLE_TCP ON)
+  set(DISABLE_ZERO_TIER ON)
+  set(PACKET_ENCRYPTION OFF)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -210,7 +257,7 @@ if(NOT NINTENDO_3DS)
   find_package(Threads REQUIRED)
 endif()
 
-if(NOT NONET)
+if(PACKET_ENCRYPTION)
   if(DEVILUTIONX_SYSTEM_LIBSODIUM)
     set(sodium_USE_STATIC_LIBS ${DEVILUTIONX_STATIC_LIBSODIUM})
     find_package(sodium REQUIRED)
@@ -231,12 +278,14 @@ if(NOT fmt_FOUND)
   add_subdirectory(3rdParty/libfmt)
 endif()
 
+if(NOT DEVILUTIONX_SYSTEM_BZIP2)
+  add_subdirectory(3rdParty/bzip2)
+endif()
+
 if(ANDROID)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/android-project/3rdParty/SDL2)
-  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/android-project/3rdParty/SDL2_ttf)
 elseif(USE_SDL1)
   find_package(SDL REQUIRED)
-  find_package(SDL_ttf REQUIRED)
   include_directories(${SDL_INCLUDE_DIR})
 else()
   find_package(SDL2 REQUIRED)
@@ -260,7 +309,6 @@ else()
     # Can't define an INTERFACE target with ::, so alias instead
     add_library(SDL2::SDL2 ALIAS SDL2_lib)
   endif()
-  find_package(SDL2_ttf REQUIRED)
 endif()
 
 if(NOT NONET AND NOT DISABLE_TCP)
@@ -276,6 +324,30 @@ if(NOT NONET AND NOT DISABLE_TCP)
   endif()
 endif()
 
+if(DEVILUTIONX_SYSTEM_SDL_IMAGE)
+  if(USE_SDL1)
+    find_package(SDL_image QUIET)
+  else()
+    # vcpkg uses sdl2-image as the package name
+    find_package(sdl2-image QUIET)
+    set(SDL_image_FOUND ${sdl2-image_FOUND})
+
+    if(NOT SDL_image_FOUND)
+      # Fall back on PkgConfig via FindSDL2_image.cmake
+      find_package(SDL2_image QUIET)
+      set(SDL_image_FOUND ${SDL2_image_FOUND})
+    endif()
+  endif()
+  if(SDL_image_FOUND)
+    message("-- Found SDL_image")
+  else()
+    message("-- Suitable system SDL_image package not found, will use SDL_image from source")
+  endif()
+endif()
+if(NOT SDL_image_FOUND)
+  add_subdirectory(3rdParty/SDL_image)
+endif()
+
 if(NOT NOSOUND)
   if(DEVILUTIONX_SYSTEM_SDL_AUDIOLIB)
     find_package(SDL_audiolib REQUIRED)
@@ -285,30 +357,18 @@ if(NOT NOSOUND)
 endif()
 
 add_library(smacker STATIC
-  3rdParty/libsmacker/smk_bitstream.c
-  3rdParty/libsmacker/smk_hufftree.c
   3rdParty/libsmacker/smacker.c)
 target_include_directories(smacker PUBLIC 3rdParty/libsmacker)
 
+if(WIN32)
+add_subdirectory(3rdParty/find_steam_game)
+endif()
+
 add_subdirectory(3rdParty/simpleini)
 
-add_library(StormLib STATIC
-  3rdParty/StormLib/src/FileStream.cpp
-  3rdParty/StormLib/src/SBaseCommon.cpp
-  3rdParty/StormLib/src/SBaseFileTable.cpp
-  3rdParty/StormLib/src/SBaseSubTypes.cpp
-  3rdParty/StormLib/src/SCompression.cpp
-  3rdParty/StormLib/src/SFileExtractFile.cpp
-  3rdParty/StormLib/src/SFileFindFile.cpp
-  3rdParty/StormLib/src/SFileGetFileInfo.cpp
-  3rdParty/StormLib/src/SFileOpenArchive.cpp
-  3rdParty/StormLib/src/SFileOpenFileEx.cpp
-  3rdParty/StormLib/src/SFileReadFile.cpp)
+add_subdirectory(3rdParty/libmpq)
 
-if(WIN32)
-# Enable Unicode for StormLib wchar_t* file APIs
-target_compile_definitions(StormLib PRIVATE -DUNICODE -D_UNICODE)
-endif()
+add_subdirectory(3rdParty/hoehrmann_utf8)
 
 add_library(PKWare STATIC
   3rdParty/PKWare/explode.cpp
@@ -335,6 +395,7 @@ set(libdevilutionx_SRCS
   Source/encrypt.cpp
   Source/engine.cpp
   Source/error.cpp
+  Source/engine/game_assets.cpp
   Source/gamemenu.cpp
   Source/gendung.cpp
   Source/gmenu.cpp
@@ -354,7 +415,6 @@ set(libdevilutionx_SRCS
   Source/monstdat.cpp
   Source/monster.cpp
   Source/movie.cpp
-  Source/mpqapi.cpp
   Source/msg.cpp
   Source/multi.cpp
   Source/nthread.cpp
@@ -394,12 +454,10 @@ set(libdevilutionx_SRCS
   Source/controls/menu_controls.cpp
   Source/controls/modifier_hints.cpp
   Source/controls/plrctrls.cpp
-  Source/controls/touch.cpp
   Source/controls/keymapper.cpp
   Source/engine/animationinfo.cpp
   Source/engine/demomode.cpp
   Source/engine/load_cel.cpp
-  Source/engine/load_file.cpp
   Source/engine/random.cpp
   Source/engine/render/automap_render.cpp
   Source/engine/render/cel_render.cpp
@@ -416,8 +474,15 @@ set(libdevilutionx_SRCS
   Source/utils/display.cpp
   Source/utils/file_util.cpp
   Source/utils/language.cpp
+  Source/utils/logged_fstream.cpp
+  Source/utils/mpq.cpp
+  Source/utils/mpq_sdl_rwops.cpp
+  Source/utils/mpq_writer.cpp
   Source/utils/paths.cpp
+  Source/utils/sdl_bilinear_scale.cpp
+  Source/utils/sdl_rwops_file_wrapper.cpp
   Source/utils/sdl_thread.cpp
+  Source/utils/utf8.cpp
   Source/DiabloUI/art.cpp
   Source/DiabloUI/art_draw.cpp
   Source/DiabloUI/button.cpp
@@ -426,7 +491,7 @@ set(libdevilutionx_SRCS
   Source/DiabloUI/diabloui.cpp
   Source/DiabloUI/dialogs.cpp
   Source/DiabloUI/errorart.cpp
-  Source/DiabloUI/fonts.cpp
+  Source/DiabloUI/extrasmenu.cpp
   Source/DiabloUI/mainmenu.cpp
   Source/DiabloUI/progress.cpp
   Source/DiabloUI/scrollbar.cpp
@@ -434,22 +499,19 @@ set(libdevilutionx_SRCS
   Source/DiabloUI/selgame.cpp
   Source/DiabloUI/selhero.cpp
   Source/DiabloUI/selok.cpp
+  Source/DiabloUI/selstart.cpp
   Source/DiabloUI/selyesno.cpp
   Source/DiabloUI/support_lines.cpp
-  Source/DiabloUI/text.cpp
-  Source/DiabloUI/text_draw.cpp
   Source/DiabloUI/title.cpp
-  Source/DiabloUI/ttf_render_wrapped.cpp
+  Source/panels/charpanel.cpp
+  Source/panels/mainpanel.cpp
   Source/dvlnet/abstract_net.cpp
   Source/dvlnet/base.cpp
   Source/dvlnet/cdwrap.cpp
   Source/dvlnet/frame_queue.cpp
   Source/dvlnet/loopback.cpp
   Source/dvlnet/packet.cpp
-  Source/storm/storm.cpp
-  Source/storm/storm_file_wrapper.cpp
   Source/storm/storm_net.cpp
-  Source/storm/storm_sdl_rw.cpp
   Source/storm/storm_svid.cpp
   Source/miniwin/misc_msg.cpp)
 
@@ -483,6 +545,13 @@ if(NOT NONET)
   endif()
 endif()
 
+if (VIRTUAL_GAMEPAD)
+  list(APPEND libdevilutionx_SRCS
+    Source/controls/touch/event_handlers.cpp
+    Source/controls/touch/gamepad.cpp
+    Source/controls/touch/renderers.cpp)
+endif()
+
 set(BIN_TARGET devilutionx)
 
 if(NINTENDO_SWITCH)
@@ -490,14 +559,26 @@ if(NINTENDO_SWITCH)
     Source/platform/switch/network.cpp
     Source/platform/switch/keyboard.cpp
     Source/platform/switch/docking.cpp
-    Source/platform/switch/random.cpp
+    Source/platform/switch/asio/pause.c
     Source/platform/switch/asio/net/if.c
     Source/platform/switch/asio/sys/signal.c)
+
+  if(PACKET_ENCRYPTION)
+    list(APPEND libdevilutionx_SRCS
+      Source/platform/switch/random.cpp)
+  endif()
 endif()
 
 if(VITA)
   list(APPEND libdevilutionx_SRCS
-    Source/platform/vita/keyboard.cpp)
+    Source/platform/vita/network.cpp
+    Source/platform/vita/keyboard.cpp
+    Source/platform/vita/touch.cpp)
+
+  if(PACKET_ENCRYPTION)
+    list(APPEND libdevilutionx_SRCS
+      Source/platform/vita/random.cpp)
+  endif()
 endif()
 
 if(NINTENDO_3DS)
@@ -506,13 +587,17 @@ if(NINTENDO_3DS)
     Source/platform/ctr/keyboard.cpp
     Source/platform/ctr/display.cpp
     Source/platform/ctr/messagebox.cpp
-    Source/platform/ctr/random.cpp
     Source/platform/ctr/sockets.cpp
     Source/platform/ctr/locale.cpp
     Source/platform/ctr/asio/net/if.c
     Source/platform/ctr/asio/sys/socket.c
     Source/platform/ctr/asio/sys/uio.c)
   set(BIN_TARGET ${BIN_TARGET}.elf)
+
+  if(PACKET_ENCRYPTION)
+    list(APPEND libdevilutionx_SRCS
+      Source/platform/ctr/random.cpp)
+  endif()
 endif()
 
 if(RUN_TESTS)
@@ -552,14 +637,9 @@ else()
     Source/main.cpp
     Source/devilutionx.exe.manifest
     Packaging/macOS/AppIcon.icns
-    Packaging/resources/CharisSILB.ttf
     Packaging/windows/devilutionx.rc)
 endif()
 target_link_libraries(${BIN_TARGET} PRIVATE libdevilutionx)
-
-# Copy the font and devilutionx.mpq to the build directory to it works from the build directory
-file(COPY "Packaging/resources/CharisSILB.ttf" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
-file(COPY "Packaging/resources/devilutionx.mpq" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
 
 # Use file GENERATE instead of configure_file because configure_file
 # does not support generator expressions.
@@ -608,14 +688,19 @@ if(GPERF)
   find_package(Gperftools REQUIRED)
 endif()
 
+set(devilutionx_langs bg cs da de es fr hr it ja ko_KR pl pt_BR ro_RO ru uk sv zh_CN zh_TW)
+if(USE_GETTEXT_FROM_VCPKG)
+  # vcpkg doesn't add its own tools directory to the search path
+  list(APPEND Gettext_ROOT ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/gettext/bin)
+endif()
 find_package(Gettext)
 if (Gettext_FOUND)
-  foreach(lang bg da de es fr hr it ko_KR pt_BR ru sv zh_CN zh_TW)
+  foreach(lang ${devilutionx_langs})
     GETTEXT_PROCESS_PO_FILES(${lang} ALL PO_FILES ${CMAKE_CURRENT_LIST_DIR}/Translations/${lang}.po)
     list(APPEND devilutionx_TRANSLATIONS ${CMAKE_CURRENT_BINARY_DIR}/${lang}.gmo)
 
     if(VITA)
-      list(APPEND VITA_TRANSLATIONS_LIST "FILE" "${CMAKE_CURRENT_BINARY_DIR}/${lang}.gmo" "${lang}.gmo")
+      list(APPEND VITA_TRANSLATIONS_LIST "FILE" "${CMAKE_CURRENT_BINARY_DIR}/${lang}.gmo" "assets/${lang}.gmo")
     endif()
   endforeach(lang)
 
@@ -626,6 +711,157 @@ if (Gettext_FOUND)
 
     add_dependencies(${BIN_TARGET} copy_translations)
   endif()
+endif()
+
+set(devilutionx_assets
+  data/boxleftend.pcx
+  data/boxmiddle.pcx
+  data/boxrightend.pcx
+  data/charbg.pcx
+  data/dirtybuc.pcx
+  data/dirtybucp.pcx
+  data/healthbox.pcx
+  data/health.pcx
+  data/panel8buc.pcx
+  data/panel8bucp.pcx
+  data/monstertags.pcx
+  data/resistance.pcx
+  data/talkbutton.pcx
+  data/xpbar.pcx
+  fonts/12-00.bin
+  fonts/12-00.pcx
+  fonts/12-01.bin
+  fonts/12-01.pcx
+  fonts/12-02.bin
+  fonts/12-02.pcx
+  fonts/12-03.bin
+  fonts/12-03.pcx
+  fonts/12-04.bin
+  fonts/12-04.pcx
+  fonts/12-1f4.pcx
+  fonts/12-1f6.pcx
+  fonts/12-1f9.pcx
+  fonts/12-26.pcx
+  fonts/22-00.bin
+  fonts/22-00.pcx
+  fonts/22-01.bin
+  fonts/22-01.pcx
+  fonts/22-02.bin
+  fonts/22-02.pcx
+  fonts/22-03.bin
+  fonts/22-03.pcx
+  fonts/22-04.bin
+  fonts/22-04.pcx
+  fonts/22-05.bin
+  fonts/22-05.pcx
+  fonts/24-00.bin
+  fonts/24-00.pcx
+  fonts/24-01.bin
+  fonts/24-01.pcx
+  fonts/24-02.bin
+  fonts/24-02.pcx
+  fonts/24-03.bin
+  fonts/24-03.pcx
+  fonts/24-04.bin
+  fonts/24-04.pcx
+  fonts/24-1f4.pcx
+  fonts/24-1f6.pcx
+  fonts/24-1f9.pcx
+  fonts/24-26.pcx
+  fonts/30-00.bin
+  fonts/30-00.pcx
+  fonts/30-01.bin
+  fonts/30-01.pcx
+  fonts/30-02.bin
+  fonts/30-02.pcx
+  fonts/30-03.bin
+  fonts/30-03.pcx
+  fonts/30-04.bin
+  fonts/30-04.pcx
+  fonts/42-00.bin
+  fonts/42-00.pcx
+  fonts/42-01.bin
+  fonts/42-01.pcx
+  fonts/42-02.bin
+  fonts/42-02.pcx
+  fonts/42-03.bin
+  fonts/42-03.pcx
+  fonts/42-04.bin
+  fonts/42-04.pcx
+  fonts/46-00.bin
+  fonts/46-00.pcx
+  fonts/46-01.bin
+  fonts/46-01.pcx
+  fonts/46-02.bin
+  fonts/46-02.pcx
+  fonts/46-03.bin
+  fonts/46-03.pcx
+  fonts/46-04.bin
+  fonts/46-04.pcx
+  fonts/black.trn
+  fonts/blue.trn
+  fonts/buttonface.trn
+  fonts/buttonpushed.trn
+  fonts/golduis.trn
+  fonts/goldui.trn
+  fonts/grayuis.trn
+  fonts/grayui.trn
+  fonts/red.trn
+  fonts/whitegold.trn
+  fonts/white.trn
+  fonts/yellowdialog.trn
+  gendata/cutportlw.pcx
+  gendata/cutportrw.pcx
+  gendata/cutstartw.pcx
+  ui_art/creditsw.pcx
+  ui_art/hf_titlew.pcx
+  ui_art/mainmenuw.pcx
+  ui_art/supportw.pcx)
+
+
+# Copy assets to the build assets subdirectory. This serves two purposes:
+# - If smpq is installed, devilutionx.mpq is built from these files.
+# - If smpq is not installed, the game will load the assets directly from this directoy.
+foreach(asset_file ${devilutionx_assets})
+  set(src "${CMAKE_CURRENT_SOURCE_DIR}/Packaging/resources/assets/${asset_file}")
+  set(dst "${CMAKE_CURRENT_BINARY_DIR}/assets/${asset_file}")
+  list(APPEND DEVILUTIONX_MPQ_FILES ${asset_file})
+  list(APPEND DEVILUTIONX_OUTPUT_ASSETS_FILES ${dst})
+  add_custom_command(
+    COMMENT "Copying ${asset_file}"
+    OUTPUT "${dst}"
+    DEPENDS "${src}"
+    COMMAND ${CMAKE_COMMAND} -E copy "${src}" "${dst}"
+    VERBATIM)
+endforeach()
+if (Gettext_FOUND)
+  foreach(lang ${devilutionx_langs})
+    set(src "${CMAKE_CURRENT_BINARY_DIR}/${lang}.gmo")
+    set(dst "${CMAKE_CURRENT_BINARY_DIR}/assets/${lang}.gmo")
+    list(APPEND DEVILUTIONX_MPQ_FILES ${lang}.gmo)
+    list(APPEND DEVILUTIONX_OUTPUT_ASSETS_FILES ${dst})
+    add_custom_command(
+      COMMENT "Copying ${lang}.gmo"
+      OUTPUT "${dst}"
+      DEPENDS "${src}"
+      COMMAND ${CMAKE_COMMAND} -E copy "${src}" "${dst}"
+      VERBATIM)
+  endforeach()
+endif()
+
+if(BUILD_ASSETS_MPQ)
+  set(DEVILUTIONX_MPQ "${CMAKE_CURRENT_BINARY_DIR}/devilutionx.mpq")
+  add_custom_command(
+    COMMENT "Building devilutionx.mpq"
+    OUTPUT "${DEVILUTIONX_MPQ}"
+    COMMAND ${CMAKE_COMMAND} -E remove -f "${DEVILUTIONX_MPQ}"
+    COMMAND ${SMPQ} -M 1 -C PKWARE -c "${DEVILUTIONX_MPQ}" ${DEVILUTIONX_MPQ_FILES}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/assets"
+    DEPENDS ${DEVILUTIONX_OUTPUT_ASSETS_FILES}
+    VERBATIM)
+  add_custom_target(devilutionx_mpq ALL DEPENDS "${DEVILUTIONX_MPQ}")
+else()
+  add_custom_target(devilutionx_copied_assets ALL DEPENDS ${DEVILUTIONX_OUTPUT_ASSETS_FILES})
 endif()
 
 target_include_directories(libdevilutionx PUBLIC
@@ -639,15 +875,22 @@ endif()
 
 target_link_libraries(libdevilutionx PUBLIC
   PKWare
-  StormLib
+  libmpq
   smacker
-  simpleini)
+  simpleini
+  hoehrmann_utf8)
+
+if(WIN32)
+  target_link_libraries(libdevilutionx PUBLIC find_steam_game)
+endif()
 
 if(NOT NONET)
   if(NOT DISABLE_TCP)
     target_link_libraries(libdevilutionx PUBLIC asio)
   endif()
-  target_link_libraries(libdevilutionx PUBLIC sodium)
+  if(PACKET_ENCRYPTION)
+    target_link_libraries(libdevilutionx PUBLIC sodium)
+  endif()
 endif()
 
 target_link_libraries(libdevilutionx PUBLIC fmt::fmt)
@@ -673,6 +916,8 @@ foreach(
   GPERF_HEAP_MAIN
   GPERF_HEAP_FIRST_GAME_ITERATION
   STREAM_ALL_AUDIO
+  PACKET_ENCRYPTION
+  VIRTUAL_GAMEPAD
 )
 if(${def_name})
   list(APPEND def_list ${def_name})
@@ -689,8 +934,6 @@ foreach(
   DEFAULT_AUDIO_BUFFER_SIZE
   DEFAULT_AUDIO_RESAMPLING_QUALITY
   MO_LANG_DIR
-  TTF_FONT_DIR
-  TTF_FONT_NAME
   SDL1_VIDEO_MODE_BPP
   SDL1_VIDEO_MODE_FLAGS
   SDL1_FORCE_SVID_VIDEO_MODE
@@ -763,14 +1006,14 @@ endif()
 
 if(USE_SDL1)
   target_link_libraries(libdevilutionx PUBLIC
-    ${SDL_TTF_LIBRARY}
-    ${SDL_LIBRARY})
+    ${SDL_LIBRARY}
+    SDL_image)
   target_compile_definitions(libdevilutionx PUBLIC USE_SDL1)
 else()
   target_link_libraries(libdevilutionx PUBLIC
     SDL2::SDL2
     ${SDL2_MAIN}
-    SDL2::SDL2_ttf)
+    SDL2::SDL2_image)
 endif()
 
 if(NOT NOSOUND)
@@ -779,7 +1022,6 @@ endif()
 
 if(AMIGA)
   target_link_libraries(libdevilutionx PUBLIC
-    ${FREETYPE_LIBRARY}
     ${ZLIB_LIBRARY})
   if(NOT WARPOS)
     target_link_libraries(libdevilutionx PUBLIC -ldebug)
@@ -790,15 +1032,13 @@ if (VITA)
   target_link_libraries(libdevilutionx PUBLIC
         ScePower_stub
         SceAppUtil_stub
-        freetype
-        png
-        z
+        SceNet_stub
+        SceNetCtl_stub
   )
   target_compile_definitions(libdevilutionx PUBLIC VITA)
 endif()
 
 if(NINTENDO_3DS)
-  target_link_libraries(libdevilutionx PUBLIC 3ds::freetype 3ds::bzip2 3ds::png)
   target_link_libraries(libdevilutionx PUBLIC 3ds::citro3d 3ds::ctrulib)
 endif()
 
@@ -852,14 +1092,12 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-  target_compile_options(libdevilutionx PUBLIC "/W3")
+  target_compile_options(libdevilutionx PUBLIC "/W3" "/Zc:__cplusplus" "/utf-8")
   target_compile_definitions(libdevilutionx PUBLIC _CRT_SECURE_NO_WARNINGS)
-  target_compile_options(libdevilutionx PUBLIC "/Zc:__cplusplus")
 endif()
 
 if(APPLE)
   set_source_files_properties("./Packaging/macOS/AppIcon.icns" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-  set_source_files_properties("./Packaging/resources/CharisSILB.ttf" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   set(MACOSX_BUNDLE_GUI_IDENTIFIER com.diasurgical.devilutionx)
   set(MACOSX_BUNDLE_COPYRIGHT Unlicense)
   set(MACOSX_BUNDLE_BUNDLE_NAME devilutionx)
@@ -886,14 +1124,6 @@ if(APPLE)
 endif()
 
 if(NINTENDO_SWITCH)
-
-  target_link_libraries(libdevilutionx PUBLIC
-        freetype
-        png
-        bz2
-        z
-  )
-
   nx_generate_nacp (${BIN_TARGET}.nacp
     NAME    "DevilutionX"
     AUTHOR  "Devilution Team"
@@ -914,19 +1144,23 @@ if(VITA)
   set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1")
   set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
   vita_create_self(devilutionx.self devilutionx UNSAFE)
-  vita_create_vpk(devilutionx.vpk ${VITA_TITLEID} devilutionx.self
-    VERSION ${VITA_VERSION}
-    NAME ${VITA_APP_NAME}
-    FILE Packaging/vita/sce_sys/icon0.png sce_sys/icon0.png
-    FILE Packaging/vita/sce_sys/pic0.png sce_sys/pic0.png
-    FILE Packaging/vita/sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
-    FILE Packaging/vita/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
-    FILE Packaging/vita/sce_sys/livearea/contents/logo0.png sce_sys/livearea/contents/logo0.png
-    FILE Packaging/vita/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
-    FILE Packaging/resources/CharisSILB.ttf CharisSILB.ttf
-    FILE Packaging/resources/devilutionx.mpq devilutionx.mpq
-    ${VITA_TRANSLATIONS_LIST}
-  )
+  if(BUILD_ASSETS_MPQ)
+    vita_create_vpk(devilutionx.vpk ${VITA_TITLEID} devilutionx.self
+      VERSION ${VITA_VERSION}
+      NAME ${VITA_APP_NAME}
+      FILE Packaging/vita/sce_sys sce_sys
+      FILE ${DEVILUTIONX_MPQ} devilutionx.mpq
+    )
+  else()
+    vita_create_vpk(devilutionx.vpk ${VITA_TITLEID} devilutionx.self
+      VERSION ${VITA_VERSION}
+      NAME ${VITA_APP_NAME}
+      FILE Packaging/vita/sce_sys sce_sys
+      FILE Packaging/resources/assets assets
+      ${VITA_TRANSLATIONS_LIST}
+    )
+  endif()
+
 endif()
 
 if(NINTENDO_3DS)
@@ -938,10 +1172,7 @@ if(NINTENDO_3DS)
   set(APP_AUDIO       "${CMAKE_BINARY_DIR}/banner_audio.wav")
   set(APP_RSF         "${PROJECT_SOURCE_DIR}/Packaging/ctr/template.rsf")
   set(APP_ROMFS       "${CMAKE_BINARY_DIR}/romfs")
-  list(APPEND APP_ROMFS_FILES
-    ${PROJECT_SOURCE_DIR}/Packaging/resources/CharisSILB.ttf
-    ${PROJECT_SOURCE_DIR}/Packaging/resources/devilutionx.mpq
-    ${devilutionx_TRANSLATIONS})
+  list(APPEND APP_ROMFS_FILES ${DEVILUTIONX_MPQ})
   set(APP_VERSION ${PROJECT_VERSION})
 
   find_program(FFMPEG ffmpeg)
@@ -962,18 +1193,18 @@ if(NINTENDO_3DS)
 
   add_custom_target(romfs_files
     COMMAND ${CMAKE_COMMAND} -E copy ${APP_ROMFS_FILES} ${APP_ROMFS}
-    DEPENDS romfs_directory)
+    DEPENDS ${APP_ROMFS_FILES})
+    
+  add_dependencies(romfs_files romfs_directory devilutionx_mpq)
 
   include(Tools3DS)
-  add_3dsx_target(${BIN_TARGET})
   add_cia_target(${BIN_TARGET} ${APP_RSF} ${APP_BANNER} ${APP_AUDIO})
 
   get_filename_component(APP_TARGET_PREFIX ${BIN_TARGET} NAME_WE)
-  add_dependencies(${APP_TARGET_PREFIX}_3dsx romfs_files)
   add_dependencies(${APP_TARGET_PREFIX}_cia romfs_files)
 endif()
 
-if(CPACK)
+if(CPACK AND (APPLE OR BUILD_ASSETS_MPQ))
   if(WIN32)
     if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
       set(SDL2_WIN32_DLLS_DIR "${CMAKE_BINARY_DIR}")
@@ -998,10 +1229,7 @@ if(CPACK)
     install(FILES "${PROJECT_SOURCE_DIR}/Packaging/windows/README.txt"
       DESTINATION "."
     )
-    install(FILES "${PROJECT_SOURCE_DIR}/Packaging/resources/CharisSILB.ttf"
-      DESTINATION "."
-    )
-    install(FILES "${PROJECT_SOURCE_DIR}/Packaging/resources/devilutionx.mpq"
+    install(FILES "${DEVILUTIONX_MPQ}"
       DESTINATION "."
     )
 
@@ -1044,7 +1272,7 @@ if(CPACK)
     install(FILES "${PROJECT_SOURCE_DIR}/Packaging/nix/README.txt"
       DESTINATION "share/diasurgical/${project_name}"
     )
-    install(FILES "${PROJECT_SOURCE_DIR}/Packaging/resources/devilutionx.mpq"
+    install(FILES "${DEVILUTIONX_MPQ}"
       DESTINATION "share/diasurgical/${project_name}"
     )
     install(FILES "${PROJECT_SOURCE_DIR}/Packaging/resources/icon.png"
@@ -1055,16 +1283,13 @@ if(CPACK)
       DESTINATION "share/icons/hicolor/512x512/apps"
       RENAME "${project_name}-hellfire.png"
     )
-    install(FILES "${PROJECT_SOURCE_DIR}/Packaging/resources/CharisSILB.ttf"
-      DESTINATION "share/fonts/truetype"
-    )
 
     # -G DEB
     set(CPACK_PACKAGE_CONTACT "anders@jenbo.dk")
     if(USE_SDL1)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libsdl1.2debian, libsdl-ttf2.0-0")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libsdl1.2debian")
     else()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libsdl2-2.0-0, libsdl2-ttf-2.0-0")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libsdl2-2.0-0")
     endif()
     set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 
@@ -1095,5 +1320,9 @@ endif()
 
 if(NOT NONET AND NOT DISABLE_ZERO_TIER)
   add_subdirectory(3rdParty/libzt)
-  target_link_libraries(libdevilutionx PUBLIC zt-static)
+  if(NOT ANDROID)
+    target_link_libraries(libdevilutionx PUBLIC zt-static)
+  else()
+    target_link_libraries(libdevilutionx PUBLIC zt-shared)
+  endif()
 endif()
